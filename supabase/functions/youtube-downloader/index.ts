@@ -167,25 +167,51 @@ Deno.serve(async (req) => {
     const videoData = results[0]
     console.log('Video data received:', videoData)
 
-    // Find the best audio format
+    // Find the best audio format using more robust filtering
     let audioMedia = null
     if (videoData.medias && Array.isArray(videoData.medias)) {
-      // Look for the requested format first
-      audioMedia = videoData.medias.find((media: any) => 
-        media.is_audio && 
-        media.type === 'audio' && 
-        media.extension?.toLowerCase() === format.toLowerCase()
-      )
-      
-      // If not found, get any audio format
-      if (!audioMedia) {
-        audioMedia = videoData.medias.find((media: any) => 
-          media.is_audio && media.type === 'audio'
+      // Filter for audio streams using codec information
+      const audioStreams = videoData.medias.filter((media: any) => {
+        // Check if it has an audio codec and either no video codec or video codec is 'none'
+        return media.acodec && 
+               media.acodec !== 'none' && 
+               (!media.vcodec || media.vcodec === 'none')
+      })
+
+      // If no audio-only streams found, try alternative filtering
+      if (audioStreams.length === 0) {
+        // Fallback: look for streams marked as audio type or with audio extensions
+        const fallbackAudioStreams = videoData.medias.filter((media: any) => {
+          return (media.is_audio === true) || 
+                 (media.type === 'audio') ||
+                 (media.extension && ['mp3', 'aac', 'm4a', 'ogg', 'wav'].includes(media.extension.toLowerCase()))
+        })
+        audioStreams.push(...fallbackAudioStreams)
+      }
+
+      console.log('Found audio streams:', audioStreams.length)
+
+      if (audioStreams.length > 0) {
+        // Look for the requested format first
+        audioMedia = audioStreams.find((media: any) => 
+          media.extension?.toLowerCase() === format.toLowerCase()
         )
+        
+        // If not found, get the best quality audio stream
+        if (!audioMedia) {
+          // Sort by quality/bitrate if available, otherwise take the first one
+          audioStreams.sort((a: any, b: any) => {
+            const aBitrate = parseInt(a.abr || a.bitrate || '0')
+            const bBitrate = parseInt(b.abr || b.bitrate || '0')
+            return bBitrate - aBitrate // Descending order (highest quality first)
+          })
+          audioMedia = audioStreams[0]
+        }
       }
     }
 
     if (!audioMedia) {
+      console.error('No audio media found. Available medias:', videoData.medias)
       return new Response(
         JSON.stringify({ 
           success: false,
@@ -208,7 +234,7 @@ Deno.serve(async (req) => {
         thumbnail: videoData.thumbnail || '',
         downloadUrl: audioMedia.url,
         format: audioMedia.extension || format,
-        quality: audioMedia.quality || 'standard'
+        quality: audioMedia.quality || audioMedia.abr || audioMedia.bitrate || 'standard'
       }
     }
 
