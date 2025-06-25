@@ -84,8 +84,14 @@ class YouTubeDownloaderService {
         
         try {
           const errorData = await response.json();
+          
+          // Handle specific APIFY_TOKEN error
+          if (errorData.error === 'APIFY_TOKEN not configured') {
+            throw new Error('Audio extraction service is not fully configured. Please set up your Apify token in the Supabase Edge Function environment variables. Visit apify.com to get your API token, then add it as APIFY_TOKEN in your Supabase dashboard under Edge Functions → youtube-downloader.');
+          }
+          
           errorMessage = errorData.error || errorMessage;
-        } catch {
+        } catch (parseError) {
           // If we can't parse the error response, use the status-based message
           if (response.status === 404) {
             errorMessage = 'Audio extraction service not found. Please ensure the Supabase Edge Function is deployed.';

@@ -28,7 +28,10 @@ Deno.serve(async (req) => {
 
     if (!url) {
       return new Response(
-        JSON.stringify({ error: 'YouTube URL is required' }),
+        JSON.stringify({ 
+          success: false,
+          error: 'YouTube URL is required' 
+        }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -40,7 +43,10 @@ Deno.serve(async (req) => {
     const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|v\/)|youtu\.be\/)[\w-]+/
     if (!youtubeRegex.test(url)) {
       return new Response(
-        JSON.stringify({ error: 'Invalid YouTube URL' }),
+        JSON.stringify({ 
+          success: false,
+          error: 'Invalid YouTube URL' 
+        }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -51,8 +57,12 @@ Deno.serve(async (req) => {
     // Get Apify token from environment
     const apifyToken = Deno.env.get('APIFY_TOKEN')
     if (!apifyToken) {
+      console.error('APIFY_TOKEN environment variable is not set')
       return new Response(
-        JSON.stringify({ error: 'APIFY_TOKEN not configured' }),
+        JSON.stringify({ 
+          success: false,
+          error: 'APIFY_TOKEN not configured' 
+        }),
         { 
           status: 500, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -84,7 +94,10 @@ Deno.serve(async (req) => {
       const errorText = await runResponse.text()
       console.error('Failed to start Apify actor:', errorText)
       return new Response(
-        JSON.stringify({ error: 'Failed to start download process' }),
+        JSON.stringify({ 
+          success: false,
+          error: 'Failed to start download process' 
+        }),
         { 
           status: 500, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -115,8 +128,12 @@ Deno.serve(async (req) => {
     }
 
     if (runStatus !== 'SUCCEEDED') {
+      console.error('Apify run failed or timed out. Status:', runStatus)
       return new Response(
-        JSON.stringify({ error: 'Download process failed or timed out' }),
+        JSON.stringify({ 
+          success: false,
+          error: 'Download process failed or timed out' 
+        }),
         { 
           status: 500, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -135,7 +152,10 @@ Deno.serve(async (req) => {
 
     if (!results || results.length === 0) {
       return new Response(
-        JSON.stringify({ error: 'No results found' }),
+        JSON.stringify({ 
+          success: false,
+          error: 'No results found' 
+        }),
         { 
           status: 404, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -166,7 +186,10 @@ Deno.serve(async (req) => {
 
     if (!audioMedia) {
       return new Response(
-        JSON.stringify({ error: 'No audio format available for this video' }),
+        JSON.stringify({ 
+          success: false,
+          error: 'No audio format available for this video' 
+        }),
         { 
           status: 404, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -199,6 +222,7 @@ Deno.serve(async (req) => {
     console.error('YouTube downloader error:', error)
     return new Response(
       JSON.stringify({ 
+        success: false,
         error: 'Internal server error',
         details: error instanceof Error ? error.message : 'Unknown error'
       }),

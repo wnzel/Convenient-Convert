@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { YoutubeIcon, Music, BookIcon as TiktokIcon, ExternalLink, AlertTriangle } from 'lucide-react';
+import { YoutubeIcon, Music, BookIcon as TiktokIcon, ExternalLink, AlertTriangle, Settings } from 'lucide-react';
 
 interface ExtractAudioFormProps {
   onSubmit: (url: string, format: string) => void;
@@ -54,6 +54,8 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
     }
   };
   
+  const isSupabaseConfigured = import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY;
+  
   return (
     <div>
       <div className="flex flex-col items-center mb-8">
@@ -68,8 +70,8 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
         </p>
       </div>
 
-      {/* Configuration notice */}
-      {(!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) && (
+      {/* Configuration notices */}
+      {!isSupabaseConfigured && (
         <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <div className="flex items-start">
             <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 mr-3 flex-shrink-0" />
@@ -80,6 +82,29 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
               <p className="text-sm text-amber-700 dark:text-amber-300">
                 To use the audio extraction feature, please click "Connect to Supabase" in the top right corner to set up your Supabase project.
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isSupabaseConfigured && (
+        <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+          <div className="flex items-start">
+            <Settings className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 mr-3 flex-shrink-0" />
+            <div>
+              <h4 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-1">
+                Additional Configuration Required
+              </h4>
+              <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">
+                To enable YouTube audio extraction, you need to configure an Apify token in your Supabase project:
+              </p>
+              <ol className="text-sm text-blue-700 dark:text-blue-300 list-decimal list-inside space-y-1 ml-2">
+                <li>Go to <a href="https://apify.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-800 dark:hover:text-blue-200">Apify.com</a> and create a free account</li>
+                <li>Get your API token from the Apify console</li>
+                <li>In your Supabase dashboard, go to Edge Functions → youtube-downloader</li>
+                <li>Add environment variable: <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">APIFY_TOKEN</code> with your token value</li>
+                <li>Redeploy the Edge Function</li>
+              </ol>
             </div>
           </div>
         </div>
@@ -176,9 +201,9 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
         <div className="flex justify-center">
           <button
             type="submit"
-            disabled={isSubmitting || (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY)}
+            disabled={isSubmitting || !isSupabaseConfigured}
             className={`px-6 py-3 font-medium rounded-lg shadow-md hover:shadow-lg transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 ${
-              isSubmitting || (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY)
+              isSubmitting || !isSupabaseConfigured
                 ? 'bg-gray-400 cursor-not-allowed text-white'
                 : 'bg-teal-600 hover:bg-teal-700 text-white'
             }`}
