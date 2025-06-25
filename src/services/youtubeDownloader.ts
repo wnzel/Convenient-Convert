@@ -44,3 +44,6 @@ export class YouTubeDownloaderService {
     return data.data;
   }
 }
+
+// Export an instance of the service as youtubeDownloader
+export const youtubeDownloader = new YouTubeDownloaderService();
