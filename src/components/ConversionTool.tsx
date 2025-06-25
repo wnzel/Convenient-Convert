@@ -71,27 +71,107 @@ const ConversionTool: React.FC = () => {
     ));
   };
 
-  const handleDownload = (fileItem: FileItem) => {
-    const link = document.createElement('a');
-    link.href = fileItem.downloadUrl!;
-    
-    // Use the original title if available, otherwise use the file name
-    let downloadName = '';
-    if (fileItem.originalTitle && fileItem.type === 'extract') {
-      // Clean the title to make it a valid filename
-      const cleanTitle = fileItem.originalTitle
-        .replace(/[<>:"/\\|?*]/g, '') // Remove invalid filename characters
-        .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-        .trim();
-      downloadName = `${cleanTitle}.${fileItem.targetFormat || 'mp3'}`;
-    } else {
-      downloadName = `converted-${fileItem.file.name}${fileItem.targetFormat ? `.${fileItem.targetFormat}` : ''}`;
+  const handleDownload = async (fileItem: FileItem) => {
+    if (!fileItem.downloadUrl) return;
+
+    try {
+      // For extracted audio files, we need to download the streaming URL as a blob
+      if (fileItem.type === 'extract') {
+        // Show downloading progress
+        setFiles(prev => prev.map(f => 
+          f.id === fileItem.id ? { ...f, progress: 0 } : f
+        ));
+
+        // Fetch the audio stream
+        const response = await fetch(fileItem.downloadUrl, {
+          mode: 'cors'
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to download: ${response.status} ${response.statusText}`);
+        }
+
+        // Get the total size for progress tracking
+        const contentLength = response.headers.get('content-length');
+        const total = contentLength ? parseInt(contentLength, 10) : 0;
+        let loaded = 0;
+
+        // Create a readable stream to track progress
+        const reader = response.body?.getReader();
+        const chunks: Uint8Array[] = [];
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+            
+            chunks.push(value);
+            loaded += value.length;
+            
+            // Update progress
+            if (total > 0) {
+              const progress = Math.round((loaded / total) * 100);
+              setFiles(prev => prev.map(f => 
+                f.id === fileItem.id ? { ...f, progress } : f
+              ));
+            }
+          }
+        }
+
+        // Create blob from chunks
+        const audioBlob = new Blob(chunks, { type: 'audio/mpeg' });
+        
+        // Create download link
+        const downloadUrl = URL.createObjectURL(audioBlob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        
+        // Use the original title if available, otherwise use the file name
+        let downloadName = '';
+        if (fileItem.originalTitle) {
+          // Clean the title to make it a valid filename
+          const cleanTitle = fileItem.originalTitle
+            .replace(/[<>:"/\\|?*]/g, '') // Remove invalid filename characters
+            .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+            .trim();
+          downloadName = `${cleanTitle}.${fileItem.targetFormat || 'mp3'}`;
+        } else {
+          downloadName = `audio.${fileItem.targetFormat || 'mp3'}`;
+        }
+        
+        link.download = downloadName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Clean up the blob URL
+        URL.revokeObjectURL(downloadUrl);
+        
+        // Reset progress
+        setFiles(prev => prev.map(f => 
+          f.id === fileItem.id ? { ...f, progress: 100 } : f
+        ));
+        
+      } else {
+        // For regular file conversions, use the existing method
+        const link = document.createElement('a');
+        link.href = fileItem.downloadUrl;
+        link.download = `converted-${fileItem.file.name}${fileItem.targetFormat ? `.${fileItem.targetFormat}` : ''}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (error) {
+      console.error('Download error:', error);
+      setFiles(prev => prev.map(f => 
+        f.id === fileItem.id ? { 
+          ...f, 
+          status: 'error', 
+          error: `Download failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        } : f
+      ));
     }
-    
-    link.download = downloadName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
   
   const simulateFileConversion = (fileId: string) => {
