@@ -16,6 +16,7 @@ export interface FileItem {
   downloadUrl?: string;
   error?: string;
   progress: number;
+  originalTitle?: string; // Add this to store the original video title
 }
 
 const ConversionTool: React.FC = () => {
@@ -69,7 +70,21 @@ const ConversionTool: React.FC = () => {
   const handleDownload = (fileItem: FileItem) => {
     const link = document.createElement('a');
     link.href = fileItem.downloadUrl!;
-    link.download = `converted-${fileItem.file.name}${fileItem.targetFormat ? `.${fileItem.targetFormat}` : ''}`;
+    
+    // Use the original title if available, otherwise use the file name
+    let downloadName = '';
+    if (fileItem.originalTitle && fileItem.type === 'extract') {
+      // Clean the title to make it a valid filename
+      const cleanTitle = fileItem.originalTitle
+        .replace(/[<>:"/\\|?*]/g, '') // Remove invalid filename characters
+        .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+        .trim();
+      downloadName = `${cleanTitle}.${fileItem.targetFormat || 'mp3'}`;
+    } else {
+      downloadName = `converted-${fileItem.file.name}${fileItem.targetFormat ? `.${fileItem.targetFormat}` : ''}`;
+    }
+    
+    link.download = downloadName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -92,6 +107,29 @@ const ConversionTool: React.FC = () => {
         }
       }, 100);
     });
+  };
+
+  // Function to extract video title from URL (simplified simulation)
+  const extractVideoTitle = (url: string): string => {
+    // In a real implementation, you would use YouTube API or web scraping
+    // For demo purposes, we'll generate a realistic title based on the URL
+    const videoId = url.split('v=')[1]?.split('&')[0] || url.split('/').pop() || 'unknown';
+    
+    // Sample titles for demonstration
+    const sampleTitles = [
+      'Amazing Music Video - Official Audio',
+      'Best Song Ever - Artist Name',
+      'Relaxing Piano Music for Study',
+      'Epic Gaming Soundtrack',
+      'Nature Sounds - Rain and Thunder',
+      'Motivational Speech - Success',
+      'Cooking Tutorial - Easy Recipe',
+      'Travel Vlog - Beautiful Destinations'
+    ];
+    
+    // Use video ID to consistently pick a title
+    const titleIndex = videoId.length % sampleTitles.length;
+    return sampleTitles[titleIndex];
   };
   
   const handleConvert = async () => {
@@ -131,8 +169,10 @@ const ConversionTool: React.FC = () => {
   };
   
   const handleExtractAudio = async (url: string, format: string) => {
-    const videoId = url.split('v=')[1] || `video-${Date.now()}`;
-    const fileName = `extracted-audio-${videoId}.${format}`;
+    // Extract the video title
+    const videoTitle = extractVideoTitle(url);
+    const videoId = url.split('v=')[1]?.split('&')[0] || `video-${Date.now()}`;
+    const fileName = `${videoTitle}.${format}`;
     
     // Create a simple audio file with a sine wave
     const sampleRate = 44100;
@@ -187,7 +227,8 @@ const ConversionTool: React.FC = () => {
       status: 'processing',
       type: 'extract',
       targetFormat: format,
-      progress: 0
+      progress: 0,
+      originalTitle: videoTitle // Store the original title
     };
     
     setFiles(prev => [...prev, newFile]);
@@ -326,7 +367,7 @@ const ConversionTool: React.FC = () => {
                       
                       <div>
                         <p className="font-medium text-gray-800 dark:text-gray-200">
-                          {file.file.name}
+                          {file.originalTitle || file.file.name}
                         </p>
                         <p className="text-sm text-gray-500 dark:text-gray-400">
                           {file.type === 'extract' ? 'Audio Extraction' : file.type} 
