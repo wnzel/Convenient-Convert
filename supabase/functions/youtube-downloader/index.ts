@@ -183,106 +183,144 @@ Deno.serve(async (req) => {
     console.log('Video data received for MP3 extraction:', videoData.title)
     console.log('Available medias count:', videoData.medias?.length || 0)
 
-    // MP3-focused audio stream selection
+    // Enhanced audio stream selection with multiple fallback strategies
     let audioMedia = null
+    
+    // Helper function to check if a media has a valid URL
+    const hasValidUrl = (media: any) => media.url && typeof media.url === 'string' && media.url.trim().length > 0
+
     if (videoData.medias && Array.isArray(videoData.medias)) {
+      console.log('Analyzing available media streams...')
       
-      // Strategy 1: Look for any stream that can be converted to MP3
-      // This includes audio-only streams and video streams with audio tracks
-      const potentialAudioStreams = videoData.medias.filter((media: any) => {
-        const hasUrl = media.url && media.url.length > 0
-        
-        // Accept streams that have audio content
-        const hasAudioCodec = media.acodec && media.acodec !== 'none'
-        const isAudioOnly = media.is_audio === true || media.type === 'audio'
-        const isVideoWithAudio = media.vcodec && media.vcodec !== 'none' && hasAudioCodec
-        const hasAudioExtension = media.extension && ['mp3', 'aac', 'm4a', 'ogg', 'wav', 'flac', 'opus', 'webm', 'mp4'].includes(media.extension.toLowerCase())
-        
-        const canExtractAudio = hasAudioCodec || isAudioOnly || isVideoWithAudio || hasAudioExtension
-        
-        return hasUrl && canExtractAudio
+      // Log all available medias for debugging
+      videoData.medias.forEach((media: any, index: number) => {
+        console.log(`Media ${index}:`, {
+          extension: media.extension,
+          acodec: media.acodec,
+          vcodec: media.vcodec,
+          type: media.type,
+          is_audio: media.is_audio,
+          hasUrl: hasValidUrl(media),
+          quality: media.quality,
+          abr: media.abr,
+          format_id: media.format_id
+        })
       })
 
-      console.log('Found potential audio streams for MP3:', potentialAudioStreams.length)
+      // Strategy 1: Look for explicit audio-only streams
+      const audioOnlyStreams = videoData.medias.filter((media: any) => {
+        return hasValidUrl(media) && (
+          media.is_audio === true ||
+          media.type === 'audio' ||
+          (media.vcodec === 'none' && media.acodec && media.acodec !== 'none') ||
+          ['m4a', 'mp3', 'aac', 'ogg', 'wav', 'flac', 'opus'].includes(media.extension?.toLowerCase())
+        )
+      })
 
-      if (potentialAudioStreams.length > 0) {
-        // Sort by preference for MP3 extraction
-        potentialAudioStreams.sort((a: any, b: any) => {
-          // Prefer audio-only streams
-          const aIsAudioOnly = a.is_audio === true || a.type === 'audio' || (!a.vcodec || a.vcodec === 'none')
-          const bIsAudioOnly = b.is_audio === true || b.type === 'audio' || (!b.vcodec || b.vcodec === 'none')
-          
-          if (aIsAudioOnly && !bIsAudioOnly) return -1
-          if (!aIsAudioOnly && bIsAudioOnly) return 1
-          
-          // Prefer formats that are easier to convert to MP3
-          const mp3FriendlyFormats = ['m4a', 'aac', 'mp3', 'ogg', 'wav']
-          const aIsMp3Friendly = mp3FriendlyFormats.includes(a.extension?.toLowerCase() || '')
-          const bIsMp3Friendly = mp3FriendlyFormats.includes(b.extension?.toLowerCase() || '')
-          
-          if (aIsMp3Friendly && !bIsMp3Friendly) return -1
-          if (!aIsMp3Friendly && bIsMp3Friendly) return 1
-          
-          // Prefer higher quality
+      if (audioOnlyStreams.length > 0) {
+        console.log('Found audio-only streams:', audioOnlyStreams.length)
+        // Sort by quality preference
+        audioOnlyStreams.sort((a: any, b: any) => {
           const aBitrate = parseInt(a.abr || a.bitrate || a.tbr || '0')
           const bBitrate = parseInt(b.abr || b.bitrate || b.tbr || '0')
           return bBitrate - aBitrate
         })
-
-        audioMedia = potentialAudioStreams[0]
-        console.log('Selected media for MP3 conversion:', {
-          extension: audioMedia.extension,
-          acodec: audioMedia.acodec,
-          vcodec: audioMedia.vcodec,
-          quality: audioMedia.quality,
-          abr: audioMedia.abr,
-          isAudioOnly: audioMedia.is_audio === true || audioMedia.type === 'audio'
-        })
+        audioMedia = audioOnlyStreams[0]
+        console.log('Selected audio-only stream:', audioMedia.extension, audioMedia.abr)
       }
 
-      // Fallback: try any stream with a URL
+      // Strategy 2: Look for streams with audio codecs (including video+audio)
       if (!audioMedia) {
-        console.log('No suitable audio streams found, trying fallback...')
-        audioMedia = videoData.medias.find((media: any) => media.url && media.url.length > 0)
-        
-        if (audioMedia) {
-          console.log('Using fallback media for MP3 conversion:', {
-            extension: audioMedia.extension,
-            acodec: audioMedia.acodec,
-            vcodec: audioMedia.vcodec
+        const streamsWithAudio = videoData.medias.filter((media: any) => {
+          return hasValidUrl(media) && media.acodec && media.acodec !== 'none'
+        })
+
+        if (streamsWithAudio.length > 0) {
+          console.log('Found streams with audio codecs:', streamsWithAudio.length)
+          // Prefer streams with better audio quality
+          streamsWithAudio.sort((a: any, b: any) => {
+            // Prefer audio-only over video+audio
+            const aIsAudioOnly = !a.vcodec || a.vcodec === 'none'
+            const bIsAudioOnly = !b.vcodec || b.vcodec === 'none'
+            
+            if (aIsAudioOnly && !bIsAudioOnly) return -1
+            if (!aIsAudioOnly && bIsAudioOnly) return 1
+            
+            // Then by audio bitrate
+            const aBitrate = parseInt(a.abr || a.bitrate || a.tbr || '0')
+            const bBitrate = parseInt(b.abr || b.bitrate || b.tbr || '0')
+            return bBitrate - aBitrate
           })
+          audioMedia = streamsWithAudio[0]
+          console.log('Selected stream with audio codec:', audioMedia.extension, audioMedia.acodec)
+        }
+      }
+
+      // Strategy 3: Look for any stream that's not explicitly video-only
+      if (!audioMedia) {
+        const nonVideoOnlyStreams = videoData.medias.filter((media: any) => {
+          return hasValidUrl(media) && !(
+            media.type === 'video' && 
+            media.acodec === 'none' && 
+            media.vcodec && media.vcodec !== 'none'
+          )
+        })
+
+        if (nonVideoOnlyStreams.length > 0) {
+          console.log('Found non-video-only streams:', nonVideoOnlyStreams.length)
+          audioMedia = nonVideoOnlyStreams[0]
+          console.log('Selected non-video-only stream:', audioMedia.extension)
+        }
+      }
+
+      // Strategy 4: Use any stream with a valid URL as last resort
+      if (!audioMedia) {
+        const anyValidStream = videoData.medias.find((media: any) => hasValidUrl(media))
+        if (anyValidStream) {
+          console.log('Using fallback: any valid stream')
+          audioMedia = anyValidStream
+        }
+      }
+
+      // Strategy 5: Check if there's a direct video URL we can use
+      if (!audioMedia && videoData.url && typeof videoData.url === 'string' && videoData.url.trim().length > 0) {
+        console.log('Using main video URL as fallback')
+        audioMedia = {
+          url: videoData.url,
+          extension: 'mp4',
+          acodec: 'unknown',
+          vcodec: 'unknown',
+          quality: 'standard'
         }
       }
     }
 
     if (!audioMedia) {
-      console.error('No suitable media found for MP3 extraction')
+      console.error('No suitable media found for MP3 extraction after all strategies')
       
-      // Log available medias for debugging
-      if (videoData.medias && Array.isArray(videoData.medias)) {
-        console.log('Available medias:')
-        videoData.medias.forEach((media: any, index: number) => {
-          console.log(`Media ${index}:`, {
-            extension: media.extension,
-            acodec: media.acodec,
-            vcodec: media.vcodec,
-            type: media.type,
-            is_audio: media.is_audio,
-            hasUrl: !!media.url
-          })
-        })
+      // Enhanced debugging information
+      const debugInfo = {
+        totalMedias: videoData.medias?.length || 0,
+        videoTitle: videoData.title,
+        hasMediasArray: Array.isArray(videoData.medias),
+        hasMainUrl: !!(videoData.url && typeof videoData.url === 'string' && videoData.url.trim().length > 0),
+        mediasWithUrls: videoData.medias?.filter((m: any) => hasValidUrl(m)).length || 0,
+        mediaTypes: videoData.medias?.map((m: any) => ({
+          type: m.type,
+          extension: m.extension,
+          hasUrl: hasValidUrl(m),
+          acodec: m.acodec,
+          vcodec: m.vcodec
+        })) || []
       }
+      
+      console.log('Debug info:', JSON.stringify(debugInfo, null, 2))
       
       return new Response(
         JSON.stringify({ 
           success: false,
           error: 'No audio format available for this video. The video may be restricted, have no audio track, or be unavailable for download.',
-          debug: {
-            totalMedias: videoData.medias?.length || 0,
-            videoTitle: videoData.title,
-            hasMediasArray: Array.isArray(videoData.medias),
-            mediasWithUrls: videoData.medias?.filter((m: any) => m.url && m.url.length > 0).length || 0
-          }
+          debug: debugInfo
         }),
         { 
           status: 404, 
@@ -309,6 +347,12 @@ Deno.serve(async (req) => {
     }
 
     console.log('Returning successful MP3 extraction response for:', videoData.title)
+    console.log('Selected media details:', {
+      url: audioMedia.url ? 'present' : 'missing',
+      extension: audioMedia.extension,
+      acodec: audioMedia.acodec,
+      vcodec: audioMedia.vcodec
+    })
 
     return new Response(
       JSON.stringify(response),
