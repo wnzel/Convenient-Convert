@@ -7,6 +7,7 @@ const corsHeaders = {
 interface YouTubeRequest {
   url: string;
   format?: string;
+  apifyToken?: string;
 }
 
 interface ApifyRunInput {
@@ -24,7 +25,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { url, format = 'mp3' }: YouTubeRequest = await req.json()
+    const { url, format = 'mp3', apifyToken }: YouTubeRequest = await req.json()
 
     if (!url) {
       return new Response(
@@ -54,10 +55,10 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Get Apify token from environment
-    const apifyToken = Deno.env.get('APIFY_TOKEN')
-    if (!apifyToken) {
-      console.error('APIFY_TOKEN environment variable is not set')
+    // Get Apify token from request body or environment
+    const finalApifyToken = apifyToken || Deno.env.get('APIFY_TOKEN')
+    if (!finalApifyToken) {
+      console.error('APIFY_TOKEN not provided in request and not set in environment')
       return new Response(
         JSON.stringify({ 
           success: false,
@@ -83,7 +84,7 @@ Deno.serve(async (req) => {
 
     // Start the Apify actor with timeout
     const runResponse = await Promise.race([
-      fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs?token=${apifyToken}`, {
+      fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs?token=${finalApifyToken}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -125,7 +126,7 @@ Deno.serve(async (req) => {
       
       try {
         const statusResponse = await Promise.race([
-          fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${apifyToken}`),
+          fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${finalApifyToken}`),
           new Promise<never>((_, reject) => 
             setTimeout(() => reject(new Error('Timeout checking run status')), 10000)
           )
@@ -158,7 +159,7 @@ Deno.serve(async (req) => {
       
       // Try to get run details for more info
       try {
-        const runDetailsResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${apifyToken}`)
+        const runDetailsResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${finalApifyToken}`)
         if (runDetailsResponse.ok) {
           const runDetails = await runDetailsResponse.json()
           console.error('Run details:', JSON.stringify(runDetails.data, null, 2))
@@ -189,7 +190,7 @@ Deno.serve(async (req) => {
 
     // Get the dataset ID and fetch results with timeout
     const runDetailsResponse = await Promise.race([
-      fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${apifyToken}`),
+      fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${finalApifyToken}`),
       new Promise<never>((_, reject) => 
         setTimeout(() => reject(new Error('Timeout fetching run details')), 15000)
       )
@@ -215,7 +216,7 @@ Deno.serve(async (req) => {
 
     // Fetch the results from the dataset with timeout
     const resultsResponse = await Promise.race([
-      fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${apifyToken}`),
+      fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${finalApifyToken}`),
       new Promise<never>((_, reject) => 
         setTimeout(() => reject(new Error('Timeout fetching results')), 15000)
       )
