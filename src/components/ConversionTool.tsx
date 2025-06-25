@@ -3,7 +3,7 @@ import { Upload, X, CheckCircle, AlertCircle, FileUp, FileAudio, FileImage, File
 import FileUploadArea from './FileUploadArea';
 import ConversionOptions from './ConversionOptions';
 import ExtractAudioForm from './ExtractAudioForm';
-import { youtubeDownloader } from '../services/youtubeDownloader';
+import { YouTubeDownloaderService } from '../services/youtubeDownloader';
 
 export type ConversionType = 'audio' | 'image' | 'document' | 'video' | 'extract';
 
@@ -168,7 +168,7 @@ const ConversionTool: React.FC = () => {
       ));
 
       // Get audio download URL from YouTube
-      const audioData = await youtubeDownloader.getAudioDownloadUrl(url, format);
+      const audioData = await YouTubeDownloaderService.getAudioDownloadUrl(url, format);
       
       // Update progress
       setFiles(prev => prev.map(f => 
