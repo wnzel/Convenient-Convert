@@ -7,6 +7,7 @@ const corsHeaders = {
 interface YouTubeRequest {
   url: string;
   format?: string;
+  apifyToken?: string;
 }
 
 interface ApifyRunInput {
@@ -24,7 +25,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { url, format = 'mp3' }: YouTubeRequest = await req.json()
+    const { url, format = 'mp3', apifyToken }: YouTubeRequest = await req.json()
 
     if (!url) {
       return new Response(
@@ -54,14 +55,14 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Get Apify token from environment
-    const apifyToken = Deno.env.get('APIFY_TOKEN')
-    if (!apifyToken) {
-      console.error('APIFY_TOKEN environment variable is not set')
+    // Get Apify token from environment or request
+    const finalApifyToken = Deno.env.get('APIFY_TOKEN') || apifyToken
+    if (!finalApifyToken) {
+      console.error('APIFY_TOKEN environment variable is not set and no token provided in request')
       return new Response(
         JSON.stringify({ 
           success: false,
-          error: 'APIFY_TOKEN not configured' 
+          error: 'APIFY_TOKEN not configured. Please provide an Apify token.' 
         }),
         { 
           status: 500, 
@@ -82,7 +83,7 @@ Deno.serve(async (req) => {
     console.log('Starting Apify actor with input:', runInput)
 
     // Start the Apify actor
-    const runResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs?token=${apifyToken}`, {
+    const runResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs?token=${finalApifyToken}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -117,7 +118,7 @@ Deno.serve(async (req) => {
     while (runStatus === 'RUNNING' && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 5000)) // Wait 5 seconds
       
-      const statusResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${apifyToken}`)
+      const statusResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${finalApifyToken}`)
       if (statusResponse.ok) {
         const statusData = await statusResponse.json()
         runStatus = statusData.data.status
@@ -142,12 +143,12 @@ Deno.serve(async (req) => {
     }
 
     // Get the dataset ID and fetch results
-    const runDetailsResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${apifyToken}`)
+    const runDetailsResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${finalApifyToken}`)
     const runDetails = await runDetailsResponse.json()
     const datasetId = runDetails.data.defaultDatasetId
 
     // Fetch the results from the dataset
-    const resultsResponse = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${apifyToken}`)
+    const resultsResponse = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${finalApifyToken}`)
     const results = await resultsResponse.json()
 
     if (!results || results.length === 0) {
