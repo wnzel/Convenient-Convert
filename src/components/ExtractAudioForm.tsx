@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { YoutubeIcon, Music, BookIcon as TiktokIcon, ExternalLink } from 'lucide-react';
+import { YoutubeIcon, Music, BookIcon as TiktokIcon, ExternalLink, AlertTriangle } from 'lucide-react';
 
 interface ExtractAudioFormProps {
   onSubmit: (url: string, format: string) => void;
@@ -46,7 +46,9 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
       // Clear the form after successful submission
       setUrl('');
     } catch (error) {
-      setError('Failed to extract audio. Please try again.');
+      // The error handling is now done in the parent component
+      // This catch block is just for cleanup
+      console.error('Form submission error:', error);
     } finally {
       setIsSubmitting(false);
     }
@@ -65,6 +67,23 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
           Extract high-quality audio tracks from YouTube videos in your preferred format
         </p>
       </div>
+
+      {/* Configuration notice */}
+      {(!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) && (
+        <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+          <div className="flex items-start">
+            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 mr-3 flex-shrink-0" />
+            <div>
+              <h4 className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-1">
+                Supabase Configuration Required
+              </h4>
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                To use the audio extraction feature, please click "Connect to Supabase" in the top right corner to set up your Supabase project.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       
       <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
         {/* Source selection */}
@@ -157,9 +176,9 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
         <div className="flex justify-center">
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY)}
             className={`px-6 py-3 font-medium rounded-lg shadow-md hover:shadow-lg transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 ${
-              isSubmitting
+              isSubmitting || (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY)
                 ? 'bg-gray-400 cursor-not-allowed text-white'
                 : 'bg-teal-600 hover:bg-teal-700 text-white'
             }`}

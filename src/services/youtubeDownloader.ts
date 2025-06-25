@@ -50,33 +50,59 @@ class YouTubeDownloaderService {
         throw new Error('Invalid YouTube URL');
       }
 
+      // Check if Supabase is configured
       if (!this.supabaseUrl || !this.supabaseAnonKey) {
-        throw new Error('Supabase configuration missing. Please set up your Supabase project.');
+        throw new Error('Supabase is not configured. Please click "Connect to Supabase" in the top right to set up your Supabase project.');
       }
 
       const apiUrl = `${this.supabaseUrl}/functions/v1/youtube-downloader`;
       
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.supabaseAnonKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: url,
-          format: preferredFormat
-        })
-      });
+      let response: Response;
+      
+      try {
+        response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.supabaseAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            url: url,
+            format: preferredFormat
+          })
+        });
+      } catch (fetchError) {
+        // Handle network errors specifically
+        if (fetchError instanceof TypeError && fetchError.message.includes('fetch')) {
+          throw new Error('Unable to connect to the audio extraction service. Please check your internet connection and ensure Supabase is properly configured.');
+        }
+        throw new Error('Network error occurred while trying to extract audio. Please try again.');
+      }
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        let errorMessage = `Service error (${response.status})`;
+        
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // If we can't parse the error response, use the status-based message
+          if (response.status === 404) {
+            errorMessage = 'Audio extraction service not found. Please ensure the Supabase Edge Function is deployed.';
+          } else if (response.status === 401) {
+            errorMessage = 'Authentication failed. Please check your Supabase configuration.';
+          } else if (response.status >= 500) {
+            errorMessage = 'Server error occurred. Please try again later.';
+          }
+        }
+        
+        throw new Error(errorMessage);
       }
 
       const result: YouTubeDownloadResponse = await response.json();
 
       if (!result.success) {
-        throw new Error(result.error || 'Failed to download audio');
+        throw new Error(result.error || 'Failed to extract audio from the video');
       }
 
       return {
@@ -89,7 +115,13 @@ class YouTubeDownloaderService {
 
     } catch (error) {
       console.error('YouTube download error:', error);
-      throw error instanceof Error ? error : new Error('Unknown error occurred');
+      
+      // Re-throw with more user-friendly messages
+      if (error instanceof Error) {
+        throw error;
+      }
+      
+      throw new Error('An unexpected error occurred while extracting audio. Please try again.');
     }
   }
 
