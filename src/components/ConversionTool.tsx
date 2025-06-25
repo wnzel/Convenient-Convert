@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Upload, X, CheckCircle, AlertCircle, FileUp, FileAudio, FileImage, FileText, FileVideo, YoutubeIcon, BookIcon as TiktokIcon, ExternalLink, Settings, Download, XCircle } from 'lucide-react';
+import { Upload, X, CheckCircle, AlertCircle, FileUp, FileAudio, FileImage, FileText, FileVideo, Youtube as YoutubeIcon, BookIcon as TiktokIcon, Download, XCircle } from 'lucide-react';
 import FileUploadArea from './FileUploadArea';
 import ConversionOptions from './ConversionOptions';
 import ExtractAudioForm from './ExtractAudioForm';
@@ -27,12 +27,11 @@ const ConversionTool: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ConversionType>('audio');
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const downloadLinkRef = useRef<HTMLAnchorElement>(null);
   const conversionTimers = useRef<{ [key: string]: NodeJS.Timeout }>({});
-  
+
   const handleAddFiles = (newFiles: FileList | null, type: ConversionType) => {
     if (!newFiles || newFiles.length === 0) return;
-    
+
     const newFileItems: FileItem[] = Array.from(newFiles).map(file => ({
       id: `${file.name}-${Date.now()}`,
       file,
@@ -40,10 +39,10 @@ const ConversionTool: React.FC = () => {
       type,
       progress: 0
     }));
-    
+
     setFiles(prev => [...prev, ...newFileItems]);
   };
-  
+
   const handleRemoveFile = (id: string) => {
     if (conversionTimers.current[id]) {
       clearInterval(conversionTimers.current[id]);
@@ -57,16 +56,16 @@ const ConversionTool: React.FC = () => {
       clearInterval(conversionTimers.current[id]);
       delete conversionTimers.current[id];
     }
-    
-    setFiles(prev => prev.map(file => 
-      file.id === id 
+
+    setFiles(prev => prev.map(file =>
+      file.id === id
         ? { ...file, status: 'cancelled', error: 'Conversion cancelled' }
         : file
     ));
   };
-  
+
   const updateFileOptions = (id: string, options: { targetFormat?: string; targetSize?: number }) => {
-    setFiles(prev => prev.map(file => 
+    setFiles(prev => prev.map(file =>
       file.id === id ? { ...file, ...options } : file
     ));
   };
@@ -75,86 +74,60 @@ const ConversionTool: React.FC = () => {
     if (!fileItem.downloadUrl) return;
 
     try {
-      // For extracted audio files, we need to download the streaming URL as a blob
       if (fileItem.type === 'extract') {
-        // Show downloading progress
-        setFiles(prev => prev.map(f => 
-          f.id === fileItem.id ? { ...f, progress: 0 } : f
+        // Indicate that the download is starting
+        setFiles(prev => prev.map(f =>
+          f.id === fileItem.id ? { ...f, progress: 0, status: 'processing' } : f
         ));
 
-        // Fetch the audio stream
-        const response = await fetch(fileItem.downloadUrl, {
-          mode: 'cors'
-        });
+        const response = await fetch(fileItem.downloadUrl);
 
-        if (!response.ok) {
+        if (!response.ok || !response.body) {
           throw new Error(`Failed to download: ${response.status} ${response.statusText}`);
         }
 
-        // Get the total size for progress tracking
         const contentLength = response.headers.get('content-length');
         const total = contentLength ? parseInt(contentLength, 10) : 0;
         let loaded = 0;
-
-        // Create a readable stream to track progress
-        const reader = response.body?.getReader();
+        const reader = response.body.getReader();
         const chunks: Uint8Array[] = [];
 
-        if (reader) {
-          while (true) {
-            const { done, value } = await reader.read();
-            
-            if (done) break;
-            
-            chunks.push(value);
-            loaded += value.length;
-            
-            // Update progress
-            if (total > 0) {
-              const progress = Math.round((loaded / total) * 100);
-              setFiles(prev => prev.map(f => 
-                f.id === fileItem.id ? { ...f, progress } : f
-              ));
-            }
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          loaded += value.length;
+          if (total > 0) {
+            const progress = Math.round((loaded / total) * 100);
+            setFiles(prev => prev.map(f =>
+              f.id === fileItem.id ? { ...f, progress } : f
+            ));
           }
         }
 
-        // Create blob from chunks
         const audioBlob = new Blob(chunks, { type: 'audio/mpeg' });
-        
-        // Create download link
         const downloadUrl = URL.createObjectURL(audioBlob);
         const link = document.createElement('a');
         link.href = downloadUrl;
-        
-        // Use the original title if available, otherwise use the file name
-        let downloadName = '';
-        if (fileItem.originalTitle) {
-          // Clean the title to make it a valid filename
-          const cleanTitle = fileItem.originalTitle
+
+        // Sanitize the title for use as a filename
+        const cleanTitle = (fileItem.originalTitle || 'audio')
             .replace(/[<>:"/\\|?*]/g, '') // Remove invalid filename characters
             .replace(/\s+/g, ' ') // Replace multiple spaces with single space
             .trim();
-          downloadName = `${cleanTitle}.${fileItem.targetFormat || 'mp3'}`;
-        } else {
-          downloadName = `audio.${fileItem.targetFormat || 'mp3'}`;
-        }
+        link.download = `${cleanTitle}.${fileItem.targetFormat || 'mp3'}`;
         
-        link.download = downloadName;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        
-        // Clean up the blob URL
         URL.revokeObjectURL(downloadUrl);
-        
-        // Reset progress
-        setFiles(prev => prev.map(f => 
-          f.id === fileItem.id ? { ...f, progress: 100 } : f
+
+        // Set status back to completed
+        setFiles(prev => prev.map(f =>
+            f.id === fileItem.id ? { ...f, progress: 100, status: 'completed' } : f
         ));
-        
       } else {
-        // For regular file conversions, use the existing method
+        // For regular file conversions
         const link = document.createElement('a');
         link.href = fileItem.downloadUrl;
         link.download = `converted-${fileItem.file.name}${fileItem.targetFormat ? `.${fileItem.targetFormat}` : ''}`;
@@ -164,26 +137,24 @@ const ConversionTool: React.FC = () => {
       }
     } catch (error) {
       console.error('Download error:', error);
-      setFiles(prev => prev.map(f => 
-        f.id === fileItem.id ? { 
-          ...f, 
-          status: 'error', 
+      setFiles(prev => prev.map(f =>
+        f.id === fileItem.id ? {
+          ...f,
+          status: 'error',
           error: `Download failed: ${error instanceof Error ? error.message : 'Unknown error'}`
         } : f
       ));
     }
   };
-  
+
   const simulateFileConversion = (fileId: string) => {
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve) => {
       let progress = 0;
       conversionTimers.current[fileId] = setInterval(() => {
         progress += 2;
-        
-        setFiles(prev => prev.map(f => 
+        setFiles(prev => prev.map(f =>
           f.id === fileId ? { ...f, progress } : f
         ));
-        
         if (progress >= 100) {
           clearInterval(conversionTimers.current[fileId]);
           delete conversionTimers.current[fileId];
@@ -192,23 +163,21 @@ const ConversionTool: React.FC = () => {
       }, 100);
     });
   };
-  
+
   const handleConvert = async () => {
     setIsProcessing(true);
-    
-    setFiles(prev => prev.map(file => 
-      file.status === 'idle' ? { ...file, status: 'processing', progress: 0 } : file
-    ));
-    
-    for (const file of files.filter(f => f.status === 'idle')) {
+    const filesToConvert = files.filter(f => f.status === 'idle');
+
+    for (const file of filesToConvert) {
+        setFiles(prev => prev.map(f =>
+            f.id === file.id ? { ...file, status: 'processing', progress: 0 } : f
+        ));
       try {
         await simulateFileConversion(file.id);
-        
         const success = Math.random() > 0.1;
-        
-        setFiles(prev => prev.map(f => 
-          f.id === file.id ? { 
-            ...f, 
+        setFiles(prev => prev.map(f =>
+          f.id === file.id ? {
+            ...f,
             status: success ? 'completed' : 'error',
             progress: success ? 100 : f.progress,
             downloadUrl: success ? URL.createObjectURL(f.file) : undefined,
@@ -216,60 +185,44 @@ const ConversionTool: React.FC = () => {
           } : f
         ));
       } catch (error) {
-        setFiles(prev => prev.map(f => 
-          f.id === file.id ? { 
-            ...f, 
+        setFiles(prev => prev.map(f =>
+          f.id === file.id ? {
+            ...f,
             status: 'error',
             error: 'Conversion failed'
           } : f
         ));
       }
     }
-    
     setIsProcessing(false);
   };
-  
+
   const handleExtractAudio = async (url: string, format: string) => {
+    const newFileId = `extract-${Date.now()}`;
     const newFile: FileItem = {
-      id: `extract-${Date.now()}`,
+      id: newFileId,
       file: new File([], 'extracting...', { type: 'audio/mp3' }),
       status: 'processing',
       type: 'extract',
       targetFormat: format,
       progress: 0
     };
-    
+
     setFiles(prev => [...prev, newFile]);
-    
+
     try {
-      // Update progress to show we're fetching video info
-      setFiles(prev => prev.map(f => 
-        f.id === newFile.id ? { ...f, progress: 0 } : f
-      ));
+        setFiles(prev => prev.map(f =>
+            f.id === newFileId ? { ...f, progress: 20, error: undefined } : f
+        ));
 
-      // Get audio download URL from YouTube
       const audioData = await YouTubeDownloaderService.getAudioDownloadUrl(url, format);
-      
-      // Update progress
-      setFiles(prev => prev.map(f => 
-        f.id === newFile.id ? { 
-          ...f, 
-          progress: 60,
-          originalTitle: audioData.title,
-          author: audioData.author,
-          duration: audioData.duration,
-          thumbnail: audioData.thumbnail
-        } : f
-      ));
 
-      // Create a proper file object with the title
       const fileName = `${audioData.title.replace(/[<>:"/\\|?*]/g, '').trim()}.${format}`;
       const audioFile = new File([], fileName, { type: `audio/${format}` });
 
-      // Complete the extraction
-      setFiles(prev => prev.map(f => 
-        f.id === newFile.id ? { 
-          ...f, 
+      setFiles(prev => prev.map(f =>
+        f.id === newFileId ? {
+          ...f,
           status: 'completed',
           progress: 100,
           file: audioFile,
@@ -283,16 +236,15 @@ const ConversionTool: React.FC = () => {
     } catch (error) {
       console.error('Audio extraction error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to extract audio';
-      
-      setFiles(prev => prev.map(f => 
-        f.id === newFile.id ? { 
-          ...f, 
+      setFiles(prev => prev.map(f =>
+        f.id === newFileId ? {
+          ...f,
           status: 'error',
-          error: errorMessage
+          error: errorMessage,
+          progress: 0
         } : f
       ));
-      
-      // Re-throw the error so ExtractAudioForm can catch it and display the specific error
+      // Re-throw the error so the form can catch it
       throw error;
     }
   };
@@ -300,7 +252,7 @@ const ConversionTool: React.FC = () => {
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    const remainingSeconds = seconds % 60;
+    const remainingSeconds = Math.round(seconds % 60);
 
     if (hours > 0) {
       return `${hours}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
@@ -319,65 +271,65 @@ const ConversionTool: React.FC = () => {
             Select the type of conversion you need and upload your files
           </p>
         </div>
-        
+
         <div className="flex flex-wrap justify-center mb-8 gap-2">
-          <button
-            onClick={() => setActiveTab('audio')}
-            className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              activeTab === 'audio' 
+            <button
+              onClick={() => setActiveTab('audio')}
+              className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                activeTab === 'audio' 
                 ? 'bg-primary-500 text-white' 
                 : 'bg-gray-100 dark:bg-dark-200 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-300'
-            }`}
-          >
-            <FileAudio className="h-4 w-4 mr-2" />
-            Audio
-          </button>
-          <button
-            onClick={() => setActiveTab('image')}
-            className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              activeTab === 'image' 
+              }`}
+            >
+              <FileAudio className="h-4 w-4 mr-2" />
+              Audio
+            </button>
+            <button
+              onClick={() => setActiveTab('image')}
+              className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                activeTab === 'image' 
                 ? 'bg-primary-500 text-white' 
                 : 'bg-gray-100 dark:bg-dark-200 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-300'
-            }`}
-          >
-            <FileImage className="h-4 w-4 mr-2" />
-            Image
-          </button>
-          <button
-            onClick={() => setActiveTab('document')}
-            className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              activeTab === 'document' 
+              }`}
+            >
+              <FileImage className="h-4 w-4 mr-2" />
+              Image
+            </button>
+            <button
+              onClick={() => setActiveTab('document')}
+              className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                activeTab === 'document' 
                 ? 'bg-primary-500 text-white' 
                 : 'bg-gray-100 dark:bg-dark-200 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-300'
-            }`}
-          >
-            <FileText className="h-4 w-4 mr-2" />
-            Document
-          </button>
-          <button
-            onClick={() => setActiveTab('video')}
-            className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              activeTab === 'video' 
+              }`}
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Document
+            </button>
+            <button
+              onClick={() => setActiveTab('video')}
+              className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                activeTab === 'video' 
                 ? 'bg-primary-500 text-white' 
                 : 'bg-gray-100 dark:bg-dark-200 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-300'
-            }`}
-          >
-            <FileVideo className="h-4 w-4 mr-2" />
-            Video
-          </button>
-          <button
-            onClick={() => setActiveTab('extract')}
-            className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              activeTab === 'extract' 
+              }`}
+            >
+              <FileVideo className="h-4 w-4 mr-2" />
+              Video
+            </button>
+            <button
+              onClick={() => setActiveTab('extract')}
+              className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                activeTab === 'extract' 
                 ? 'bg-primary-500 text-white' 
                 : 'bg-gray-100 dark:bg-dark-200 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-300'
-            }`}
-          >
-            <YoutubeIcon className="h-4 w-4 mr-2" />
-            Extract Audio
-          </button>
+              }`}
+            >
+              <YoutubeIcon className="h-4 w-4 mr-2" />
+              Extract Audio
+            </button>
         </div>
-        
+
         <div className="bg-white dark:bg-dark-100 rounded-xl shadow-lg p-6 md:p-8 mb-8">
           {activeTab === 'extract' ? (
             <ExtractAudioForm onSubmit={handleExtractAudio} />
@@ -397,7 +349,7 @@ const ConversionTool: React.FC = () => {
             </>
           )}
         </div>
-        
+
         {files.length > 0 && (
           <div className="bg-white dark:bg-dark-100 rounded-xl shadow-lg p-6 md:p-8 mb-8">
             <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">File Queue</h3>
@@ -435,33 +387,33 @@ const ConversionTool: React.FC = () => {
                               </p>
                             )}
                             <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
-                              <span>
-                                {file.type === 'extract' ? 'Audio Extraction' : file.type}
-                              </span>
-                              {file.targetFormat && (
-                                <>
-                                  <span>•</span>
-                                  <span>Convert to {file.targetFormat}</span>
-                                </>
-                              )}
-                              {file.targetSize && (
-                                <>
-                                  <span>•</span>
-                                  <span>Resize to {file.targetSize}MB</span>
-                                </>
-                              )}
-                              {file.duration && (
-                                <>
-                                  <span>•</span>
-                                  <span>{formatDuration(file.duration)}</span>
-                                </>
-                              )}
-                              {file.status === 'processing' && (
-                                <>
-                                  <span>•</span>
-                                  <span>{file.progress}%</span>
-                                </>
-                              )}
+                                <span>
+                                  {file.type === 'extract' ? 'Audio Extraction' : file.type}
+                                </span>
+                                {file.targetFormat && (
+                                  <>
+                                    <span>•</span>
+                                    <span>Convert to {file.targetFormat}</span>
+                                  </>
+                                )}
+                                {file.targetSize && (
+                                  <>
+                                    <span>•</span>
+                                    <span>Resize to {file.targetSize}MB</span>
+                                  </>
+                                )}
+                                {file.duration && (
+                                  <>
+                                    <span>•</span>
+                                    <span>{formatDuration(file.duration)}</span>
+                                  </>
+                                )}
+                                {file.status === 'processing' && (
+                                  <>
+                                    <span>•</span>
+                                    <span>{file.progress}%</span>
+                                  </>
+                                )}
                             </div>
                             {file.error && (
                               <p className="text-sm text-red-500 mt-1">{file.error}</p>
@@ -503,13 +455,14 @@ const ConversionTool: React.FC = () => {
                     </div>
                   </div>
                   
-                  {(file.status === 'processing' || file.status === 'completed') && (
+                  {(file.status === 'processing' || file.status === 'completed' || file.status === 'error' && file.progress > 0) && (
                     <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 overflow-hidden">
                       <div 
                         className={`h-full rounded-full transition-all duration-300 ${
                           file.status === 'completed' 
                             ? 'bg-green-500' 
-                            : 'bg-primary-500 animate-pulse'
+                            : file.status === 'error' ? 'bg-red-500'
+                            : 'bg-primary-500'
                         }`}
                         style={{ width: `${file.progress}%` }}
                       />
