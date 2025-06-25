@@ -244,7 +244,7 @@ const ConversionTool: React.FC = () => {
     try {
       // Update progress to show we're fetching video info
       setFiles(prev => prev.map(f => 
-        f.id === newFile.id ? { ...f, progress: 20 } : f
+        f.id === newFile.id ? { ...f, progress: 0 } : f
       ));
 
       // Get audio download URL from YouTube
@@ -282,13 +282,18 @@ const ConversionTool: React.FC = () => {
       ));
     } catch (error) {
       console.error('Audio extraction error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to extract audio';
+      
       setFiles(prev => prev.map(f => 
         f.id === newFile.id ? { 
           ...f, 
           status: 'error',
-          error: error instanceof Error ? error.message : 'Failed to extract audio'
+          error: errorMessage
         } : f
       ));
+      
+      // Re-throw the error so ExtractAudioForm can catch it and display the specific error
+      throw error;
     }
   };
 

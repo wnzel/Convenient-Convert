@@ -46,7 +46,9 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
       // Clear the form after successful submission
       setUrl('');
     } catch (error) {
-      setError('Failed to extract audio. Please try again.');
+      // Display the specific error message from the backend
+      const errorMessage = error instanceof Error ? error.message : 'Failed to extract audio. Please try again.';
+      setError(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
