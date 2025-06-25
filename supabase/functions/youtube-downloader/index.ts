@@ -165,88 +165,135 @@ Deno.serve(async (req) => {
     }
 
     const videoData = results[0]
-    console.log('Video data received:', videoData)
+    console.log('Full video data structure:', JSON.stringify(videoData, null, 2))
 
-    // Improved audio stream selection logic
+    // Log the medias array structure for debugging
+    if (videoData.medias && Array.isArray(videoData.medias)) {
+      console.log('Total medias found:', videoData.medias.length)
+      console.log('First few medias:', JSON.stringify(videoData.medias.slice(0, 3), null, 2))
+    } else {
+      console.log('No medias array found or it is not an array')
+    }
+
+    // Enhanced audio stream selection logic
     let audioMedia = null
     if (videoData.medias && Array.isArray(videoData.medias)) {
-      // Define recognized audio extensions (including flac)
-      const audioExtensions = ['mp3', 'aac', 'm4a', 'ogg', 'wav', 'flac', 'opus', 'wma']
+      // Define recognized audio extensions and codecs
+      const audioExtensions = ['mp3', 'aac', 'm4a', 'ogg', 'wav', 'flac', 'opus', 'wma', 'webm']
+      const audioCodecs = ['mp3', 'aac', 'vorbis', 'opus', 'flac', 'mp4a']
       
-      // Gather all potential audio streams with multiple criteria
+      // More comprehensive audio stream detection
       const potentialAudioStreams = videoData.medias.filter((media: any) => {
-        // Check multiple conditions for audio streams
-        const hasAudioCodec = media.acodec && media.acodec !== 'none'
-        const isAudioOnly = !media.vcodec || media.vcodec === 'none' || media.vcodec === 'unknown'
-        const isMarkedAsAudio = media.is_audio === true || media.type === 'audio'
-        const hasAudioExtension = media.extension && audioExtensions.includes(media.extension.toLowerCase())
-        const hasAudioInFormat = media.format && audioExtensions.some(ext => 
-          media.format.toLowerCase().includes(ext)
-        )
+        // Log each media for debugging
+        console.log('Checking media:', {
+          extension: media.extension,
+          acodec: media.acodec,
+          vcodec: media.vcodec,
+          format: media.format,
+          type: media.type,
+          is_audio: media.is_audio,
+          quality: media.quality,
+          url: media.url ? 'present' : 'missing'
+        })
+
+        // Multiple ways to identify audio streams
+        const conditions = {
+          hasAudioCodec: media.acodec && media.acodec !== 'none' && audioCodecs.some(codec => 
+            media.acodec.toLowerCase().includes(codec)
+          ),
+          isAudioOnly: !media.vcodec || media.vcodec === 'none' || media.vcodec === 'unknown',
+          isMarkedAsAudio: media.is_audio === true || media.type === 'audio',
+          hasAudioExtension: media.extension && audioExtensions.includes(media.extension.toLowerCase()),
+          hasAudioInFormat: media.format && audioExtensions.some(ext => 
+            media.format.toLowerCase().includes(ext)
+          ),
+          hasAudioInFormatId: media.format_id && audioExtensions.some(ext => 
+            media.format_id.toLowerCase().includes(ext)
+          ),
+          hasValidUrl: media.url && media.url.length > 0
+        }
+
+        console.log('Media conditions:', conditions)
         
-        // A stream is considered audio if it meets any of these criteria
-        return hasAudioCodec || isMarkedAsAudio || hasAudioExtension || hasAudioInFormat
+        // A stream is considered audio if it meets multiple criteria and has a valid URL
+        const isAudioStream = conditions.hasValidUrl && (
+          conditions.hasAudioCodec || 
+          conditions.isMarkedAsAudio || 
+          conditions.hasAudioExtension || 
+          conditions.hasAudioInFormat ||
+          conditions.hasAudioInFormatId ||
+          (conditions.isAudioOnly && media.acodec)
+        )
+
+        console.log('Is audio stream:', isAudioStream)
+        return isAudioStream
       })
 
       console.log('Found potential audio streams:', potentialAudioStreams.length)
-      console.log('Audio streams details:', potentialAudioStreams.map(s => ({
-        extension: s.extension,
-        acodec: s.acodec,
-        vcodec: s.vcodec,
-        format: s.format,
-        quality: s.quality,
-        abr: s.abr,
-        bitrate: s.bitrate
-      })))
 
       if (potentialAudioStreams.length > 0) {
-        // Sort streams to prioritize audio-only streams and then by quality
+        // Sort streams to prioritize the best quality audio
         potentialAudioStreams.sort((a: any, b: any) => {
-          // First, prioritize audio-only streams (no video codec)
+          // First, prioritize exact format match
+          const aMatchesFormat = a.extension?.toLowerCase() === format.toLowerCase()
+          const bMatchesFormat = b.extension?.toLowerCase() === format.toLowerCase()
+          
+          if (aMatchesFormat && !bMatchesFormat) return -1
+          if (!aMatchesFormat && bMatchesFormat) return 1
+          
+          // Then prioritize audio-only streams
           const aIsAudioOnly = !a.vcodec || a.vcodec === 'none' || a.vcodec === 'unknown'
           const bIsAudioOnly = !b.vcodec || b.vcodec === 'none' || b.vcodec === 'unknown'
           
           if (aIsAudioOnly && !bIsAudioOnly) return -1
           if (!aIsAudioOnly && bIsAudioOnly) return 1
           
-          // Then sort by quality/bitrate (highest first)
-          const aBitrate = parseInt(a.abr || a.bitrate || '0')
-          const bBitrate = parseInt(b.abr || b.bitrate || '0')
+          // Finally sort by quality/bitrate (highest first)
+          const aBitrate = parseInt(a.abr || a.bitrate || a.tbr || '0')
+          const bBitrate = parseInt(b.abr || b.bitrate || b.tbr || '0')
           return bBitrate - aBitrate
         })
 
-        // Try to find the requested format first
-        audioMedia = potentialAudioStreams.find((media: any) => 
-          media.extension?.toLowerCase() === format.toLowerCase()
-        )
-        
-        // If requested format not found, try to find it in the format string
-        if (!audioMedia) {
-          audioMedia = potentialAudioStreams.find((media: any) => 
-            media.format?.toLowerCase().includes(format.toLowerCase())
-          )
-        }
-        
-        // If still not found, select the highest quality available audio stream
-        if (!audioMedia) {
-          audioMedia = potentialAudioStreams[0]
-        }
+        console.log('Sorted audio streams:', potentialAudioStreams.map(s => ({
+          extension: s.extension,
+          quality: s.quality,
+          abr: s.abr,
+          bitrate: s.bitrate,
+          acodec: s.acodec
+        })))
+
+        // Select the best audio stream
+        audioMedia = potentialAudioStreams[0]
+        console.log('Selected audio media:', {
+          extension: audioMedia.extension,
+          quality: audioMedia.quality,
+          acodec: audioMedia.acodec,
+          url: audioMedia.url ? 'present' : 'missing'
+        })
       }
     }
 
     if (!audioMedia) {
-      console.error('No audio media found. Available medias:', videoData.medias?.map(m => ({
+      console.error('No audio media found after filtering')
+      console.error('Available medias summary:', videoData.medias?.map(m => ({
         extension: m.extension,
         acodec: m.acodec,
         vcodec: m.vcodec,
         format: m.format,
         type: m.type,
-        is_audio: m.is_audio
+        is_audio: m.is_audio,
+        hasUrl: !!m.url
       })))
+      
       return new Response(
         JSON.stringify({ 
           success: false,
-          error: 'No audio format available for this video' 
+          error: 'No audio format available for this video',
+          debug: {
+            totalMedias: videoData.medias?.length || 0,
+            mediasWithUrls: videoData.medias?.filter(m => m.url).length || 0,
+            requestedFormat: format
+          }
         }),
         { 
           status: 404, 
@@ -268,6 +315,8 @@ Deno.serve(async (req) => {
         quality: audioMedia.quality || audioMedia.abr || audioMedia.bitrate || 'standard'
       }
     }
+
+    console.log('Returning successful response:', response)
 
     return new Response(
       JSON.stringify(response),
