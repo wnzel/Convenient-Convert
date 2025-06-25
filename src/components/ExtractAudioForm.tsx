@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { YoutubeIcon, Music, BookIcon as TiktokIcon, ExternalLink, AlertTriangle, Settings } from 'lucide-react';
+import { YoutubeIcon, Music, BookIcon as TiktokIcon, ExternalLink, AlertTriangle, Info } from 'lucide-react';
 
 interface ExtractAudioFormProps {
   onSubmit: (url: string, format: string) => void;
@@ -90,21 +90,17 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
       {isSupabaseConfigured && (
         <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
           <div className="flex items-start">
-            <Settings className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 mr-3 flex-shrink-0" />
+            <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 mr-3 flex-shrink-0" />
             <div>
               <h4 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-1">
-                Additional Configuration Required
+                Development Mode
               </h4>
-              <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">
-                To enable YouTube audio extraction, you need to configure an Apify token in your Supabase project:
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                The audio extraction feature is currently in development mode and will return placeholder data. 
+                To implement full functionality, you'll need to add the actual download logic to your 
+                <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded mx-1">youtube-download</code> 
+                edge function.
               </p>
-              <ol className="text-sm text-blue-700 dark:text-blue-300 list-decimal list-inside space-y-1 ml-2">
-                <li>Go to <a href="https://apify.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-800 dark:hover:text-blue-200">Apify.com</a> and create a free account</li>
-                <li>Get your API token from the Apify console</li>
-                <li>In your Supabase dashboard, go to Edge Functions → youtube-downloader</li>
-                <li>Add environment variable: <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">APIFY_TOKEN</code> with your token value</li>
-                <li>Redeploy the Edge Function</li>
-              </ol>
             </div>
           </div>
         </div>
