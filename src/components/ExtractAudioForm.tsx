@@ -10,29 +10,46 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
   const [format, setFormat] = useState('mp3');
   const [urlType, setUrlType] = useState<'youtube' | 'tiktok'>('youtube');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const validateUrl = (url: string, type: 'youtube' | 'tiktok'): boolean => {
     if (!url) return false;
     
     if (type === 'youtube') {
-      // Simple validation for YouTube URLs
-      return url.includes('youtube.com/') || url.includes('youtu.be/');
+      // More comprehensive YouTube URL validation
+      const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|v\/)|youtu\.be\/)[\w-]+/;
+      return youtubeRegex.test(url);
     } else {
-      // Simple validation for TikTok URLs
+      // Simple validation for TikTok URLs (currently not supported by the API)
       return url.includes('tiktok.com/');
     }
   };
   
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!validateUrl(url, urlType)) {
       setError(`Please enter a valid ${urlType === 'youtube' ? 'YouTube' : 'TikTok'} URL`);
       return;
     }
+
+    if (urlType === 'tiktok') {
+      setError('TikTok extraction is not currently supported. Please use a YouTube URL.');
+      return;
+    }
     
     setError('');
-    onSubmit(url, format);
+    setIsSubmitting(true);
+    
+    try {
+      await onSubmit(url, format);
+      // Clear the form after successful submission
+      setUrl('');
+    } catch (error) {
+      setError('Failed to extract audio. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
   
   return (
@@ -42,10 +59,10 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
           <Music className="h-8 w-8 text-teal-600 dark:text-teal-400" />
         </div>
         <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-          Extract Audio from Videos
+          Extract Audio from YouTube Videos
         </h3>
         <p className="text-gray-600 dark:text-gray-400 text-center max-w-md">
-          Extract audio tracks from YouTube or TikTok videos in your preferred format
+          Extract high-quality audio tracks from YouTube videos in your preferred format
         </p>
       </div>
       
@@ -68,14 +85,15 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
             <button
               type="button"
               onClick={() => setUrlType('tiktok')}
-              className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              className={`flex items-center px-4 py-2 rounded-full text-sm font-medium transition-colors opacity-50 cursor-not-allowed ${
                 urlType === 'tiktok' 
                   ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow' 
                   : 'text-gray-700 dark:text-gray-300'
               }`}
+              disabled
             >
               <TiktokIcon className="h-4 w-4 mr-2" />
-              TikTok
+              TikTok (Coming Soon)
             </button>
           </div>
         </div>
@@ -83,28 +101,25 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
         {/* URL input */}
         <div className="mb-6">
           <label htmlFor="video-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Video URL
+            YouTube Video URL
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              {urlType === 'youtube' ? (
-                <YoutubeIcon className="h-5 w-5 text-gray-400" />
-              ) : (
-                <TiktokIcon className="h-5 w-5 text-gray-400" />
-              )}
+              <YoutubeIcon className="h-5 w-5 text-gray-400" />
             </div>
             <input
               type="url"
               id="video-url"
-              placeholder={`Enter ${urlType === 'youtube' ? 'YouTube' : 'TikTok'} video URL`}
+              placeholder="https://www.youtube.com/watch?v=..."
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               className="block w-full pl-10 pr-12 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-colors"
               required
+              disabled={isSubmitting}
             />
             <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
               <a 
-                href={urlType === 'youtube' ? 'https://youtube.com' : 'https://tiktok.com'} 
+                href="https://youtube.com" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
@@ -128,8 +143,9 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
             value={format}
             onChange={(e) => setFormat(e.target.value)}
             className="block w-full py-3 px-4 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-colors"
+            disabled={isSubmitting}
           >
-            <option value="mp3">MP3</option>
+            <option value="mp3">MP3 (Recommended)</option>
             <option value="m4a">M4A</option>
             <option value="wav">WAV</option>
             <option value="flac">FLAC</option>
@@ -141,9 +157,14 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
         <div className="flex justify-center">
           <button
             type="submit"
-            className="px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-lg shadow-md hover:shadow-lg transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
+            disabled={isSubmitting}
+            className={`px-6 py-3 font-medium rounded-lg shadow-md hover:shadow-lg transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 ${
+              isSubmitting
+                ? 'bg-gray-400 cursor-not-allowed text-white'
+                : 'bg-teal-600 hover:bg-teal-700 text-white'
+            }`}
           >
-            Extract Audio
+            {isSubmitting ? 'Extracting Audio...' : 'Extract Audio'}
           </button>
         </div>
       </form>

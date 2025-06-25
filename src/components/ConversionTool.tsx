@@ -3,6 +3,7 @@ import { Upload, X, CheckCircle, AlertCircle, FileUp, FileAudio, FileImage, File
 import FileUploadArea from './FileUploadArea';
 import ConversionOptions from './ConversionOptions';
 import ExtractAudioForm from './ExtractAudioForm';
+import { youtubeDownloader } from '../services/youtubeDownloader';
 
 export type ConversionType = 'audio' | 'image' | 'document' | 'video' | 'extract';
 
@@ -16,7 +17,10 @@ export interface FileItem {
   downloadUrl?: string;
   error?: string;
   progress: number;
-  originalTitle?: string; // Add this to store the original video title
+  originalTitle?: string;
+  author?: string;
+  duration?: number;
+  thumbnail?: string;
 }
 
 const ConversionTool: React.FC = () => {
@@ -108,29 +112,6 @@ const ConversionTool: React.FC = () => {
       }, 100);
     });
   };
-
-  // Function to extract video title from URL (simplified simulation)
-  const extractVideoTitle = (url: string): string => {
-    // In a real implementation, you would use YouTube API or web scraping
-    // For demo purposes, we'll generate a realistic title based on the URL
-    const videoId = url.split('v=')[1]?.split('&')[0] || url.split('/').pop() || 'unknown';
-    
-    // Sample titles for demonstration
-    const sampleTitles = [
-      'Amazing Music Video - Official Audio',
-      'Best Song Ever - Artist Name',
-      'Relaxing Piano Music for Study',
-      'Epic Gaming Soundtrack',
-      'Nature Sounds - Rain and Thunder',
-      'Motivational Speech - Success',
-      'Cooking Tutorial - Easy Recipe',
-      'Travel Vlog - Beautiful Destinations'
-    ];
-    
-    // Use video ID to consistently pick a title
-    const titleIndex = videoId.length % sampleTitles.length;
-    return sampleTitles[titleIndex];
-  };
   
   const handleConvert = async () => {
     setIsProcessing(true);
@@ -169,92 +150,77 @@ const ConversionTool: React.FC = () => {
   };
   
   const handleExtractAudio = async (url: string, format: string) => {
-    // Extract the video title
-    const videoTitle = extractVideoTitle(url);
-    const videoId = url.split('v=')[1]?.split('&')[0] || `video-${Date.now()}`;
-    const fileName = `${videoTitle}.${format}`;
-    
-    // Create a simple audio file with a sine wave
-    const sampleRate = 44100;
-    const duration = 3; // 3 seconds
-    const frequency = 440; // 440 Hz (A4 note)
-    const numSamples = sampleRate * duration;
-    
-    // Create WAV header
-    const headerLength = 44;
-    const totalLength = headerLength + (numSamples * 2); // 16-bit samples
-    const header = new ArrayBuffer(headerLength);
-    const view = new DataView(header);
-    
-    // WAV header format
-    // "RIFF" chunk descriptor
-    view.setUint32(0, 0x52494646, false); // "RIFF"
-    view.setUint32(4, totalLength - 8, true); // File size - 8
-    view.setUint32(8, 0x57415645, false); // "WAVE"
-    
-    // "fmt " sub-chunk
-    view.setUint32(12, 0x666D7420, false); // "fmt "
-    view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
-    view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
-    view.setUint16(22, 1, true); // NumChannels (1 for mono)
-    view.setUint32(24, sampleRate, true); // SampleRate
-    view.setUint32(28, sampleRate * 2, true); // ByteRate
-    view.setUint16(32, 2, true); // BlockAlign
-    view.setUint16(34, 16, true); // BitsPerSample
-    
-    // "data" sub-chunk
-    view.setUint32(36, 0x64617461, false); // "data"
-    view.setUint32(40, numSamples * 2, true); // Subchunk2Size
-    
-    // Generate audio data (sine wave)
-    const audioData = new ArrayBuffer(numSamples * 2);
-    const audioView = new DataView(audioData);
-    
-    for (let i = 0; i < numSamples; i++) {
-      const t = i / sampleRate;
-      const sample = Math.sin(2 * Math.PI * frequency * t) * 0x7FFF; // Scale to 16-bit
-      audioView.setInt16(i * 2, sample, true);
-    }
-    
-    // Combine header and audio data
-    const combinedBuffer = new Uint8Array(totalLength);
-    combinedBuffer.set(new Uint8Array(header), 0);
-    combinedBuffer.set(new Uint8Array(audioData), headerLength);
-    
     const newFile: FileItem = {
       id: `extract-${Date.now()}`,
-      file: new File([combinedBuffer], fileName, { type: 'audio/wav' }),
+      file: new File([], 'extracting...', { type: 'audio/mp3' }),
       status: 'processing',
       type: 'extract',
       targetFormat: format,
-      progress: 0,
-      originalTitle: videoTitle // Store the original title
+      progress: 0
     };
     
     setFiles(prev => [...prev, newFile]);
     
     try {
-      await simulateFileConversion(newFile.id);
+      // Update progress to show we're fetching video info
+      setFiles(prev => prev.map(f => 
+        f.id === newFile.id ? { ...f, progress: 20 } : f
+      ));
+
+      // Get audio download URL from YouTube
+      const audioData = await youtubeDownloader.getAudioDownloadUrl(url, format);
       
+      // Update progress
+      setFiles(prev => prev.map(f => 
+        f.id === newFile.id ? { 
+          ...f, 
+          progress: 60,
+          originalTitle: audioData.title,
+          author: audioData.author,
+          duration: audioData.duration,
+          thumbnail: audioData.thumbnail
+        } : f
+      ));
+
+      // Create a proper file object with the title
+      const fileName = `${audioData.title.replace(/[<>:"/\\|?*]/g, '').trim()}.${format}`;
+      const audioFile = new File([], fileName, { type: `audio/${format}` });
+
+      // Complete the extraction
       setFiles(prev => prev.map(f => 
         f.id === newFile.id ? { 
           ...f, 
           status: 'completed',
           progress: 100,
-          downloadUrl: URL.createObjectURL(
-            new File([combinedBuffer], fileName, { type: 'audio/wav' })
-          )
+          file: audioFile,
+          downloadUrl: audioData.downloadUrl,
+          originalTitle: audioData.title,
+          author: audioData.author,
+          duration: audioData.duration,
+          thumbnail: audioData.thumbnail
         } : f
       ));
     } catch (error) {
+      console.error('Audio extraction error:', error);
       setFiles(prev => prev.map(f => 
         f.id === newFile.id ? { 
           ...f, 
           status: 'error',
-          error: 'Failed to extract audio'
+          error: error instanceof Error ? error.message : 'Failed to extract audio'
         } : f
       ));
     }
+  };
+
+  const formatDuration = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -357,35 +323,74 @@ const ConversionTool: React.FC = () => {
                   key={file.id} 
                   className="flex flex-col bg-gray-50 dark:bg-gray-700 rounded-lg p-4 transition-colors"
                 >
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center space-x-3">
-                      {file.status === 'idle' && <FileUp className="h-5 w-5 text-gray-500 dark:text-gray-400" />}
-                      {file.status === 'processing' && <Upload className="h-5 w-5 text-indigo-500 animate-pulse" />}
-                      {file.status === 'completed' && <CheckCircle className="h-5 w-5 text-green-500" />}
-                      {file.status === 'error' && <AlertCircle className="h-5 w-5 text-red-500" />}
-                      {file.status === 'cancelled' && <XCircle className="h-5 w-5 text-orange-500" />}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-start space-x-3 flex-1">
+                      {file.status === 'idle' && <FileUp className="h-5 w-5 text-gray-500 dark:text-gray-400 mt-1" />}
+                      {file.status === 'processing' && <Upload className="h-5 w-5 text-indigo-500 animate-pulse mt-1" />}
+                      {file.status === 'completed' && <CheckCircle className="h-5 w-5 text-green-500 mt-1" />}
+                      {file.status === 'error' && <AlertCircle className="h-5 w-5 text-red-500 mt-1" />}
+                      {file.status === 'cancelled' && <XCircle className="h-5 w-5 text-orange-500 mt-1" />}
                       
-                      <div>
-                        <p className="font-medium text-gray-800 dark:text-gray-200">
-                          {file.originalTitle || file.file.name}
-                        </p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                          {file.type === 'extract' ? 'Audio Extraction' : file.type} 
-                          {file.targetFormat && ` • Convert to ${file.targetFormat}`}
-                          {file.targetSize && ` • Resize to ${file.targetSize}MB`}
-                          {file.status === 'processing' && ` • ${file.progress}%`}
-                        </p>
-                        {file.error && (
-                          <p className="text-sm text-red-500">{file.error}</p>
-                        )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start space-x-3">
+                          {file.thumbnail && (
+                            <img 
+                              src={file.thumbnail} 
+                              alt="Video thumbnail" 
+                              className="w-16 h-12 object-cover rounded flex-shrink-0"
+                            />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-800 dark:text-gray-200 truncate">
+                              {file.originalTitle || file.file.name}
+                            </p>
+                            {file.author && (
+                              <p className="text-sm text-gray-600 dark:text-gray-400">
+                                by {file.author}
+                              </p>
+                            )}
+                            <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
+                              <span>
+                                {file.type === 'extract' ? 'Audio Extraction' : file.type}
+                              </span>
+                              {file.targetFormat && (
+                                <>
+                                  <span>•</span>
+                                  <span>Convert to {file.targetFormat}</span>
+                                </>
+                              )}
+                              {file.targetSize && (
+                                <>
+                                  <span>•</span>
+                                  <span>Resize to {file.targetSize}MB</span>
+                                </>
+                              )}
+                              {file.duration && (
+                                <>
+                                  <span>•</span>
+                                  <span>{formatDuration(file.duration)}</span>
+                                </>
+                              )}
+                              {file.status === 'processing' && (
+                                <>
+                                  <span>•</span>
+                                  <span>{file.progress}%</span>
+                                </>
+                              )}
+                            </div>
+                            {file.error && (
+                              <p className="text-sm text-red-500 mt-1">{file.error}</p>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                     
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 ml-3">
                       {file.status === 'processing' && (
                         <button 
                           onClick={() => handleCancelConversion(file.id)}
-                          className="flex items-center px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors"
+                          className="flex items-center px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors text-sm"
                         >
                           <X className="h-4 w-4 mr-1" />
                           Cancel
@@ -395,7 +400,7 @@ const ConversionTool: React.FC = () => {
                       {file.status === 'completed' && file.downloadUrl && (
                         <button 
                           onClick={() => handleDownload(file)}
-                          className="flex items-center px-3 py-1 bg-primary-500 hover:bg-primary-600 text-white rounded-md transition-colors"
+                          className="flex items-center px-3 py-1 bg-primary-500 hover:bg-primary-600 text-white rounded-md transition-colors text-sm"
                         >
                           <Download className="h-4 w-4 mr-1" />
                           Download
