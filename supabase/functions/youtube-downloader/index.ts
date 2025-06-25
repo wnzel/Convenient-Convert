@@ -172,10 +172,10 @@ Deno.serve(async (req) => {
     if (videoData.medias && Array.isArray(videoData.medias)) {
       // Filter for audio streams using codec information
       const audioStreams = videoData.medias.filter((media: any) => {
-        // Check if it has an audio codec and either no video codec or video codec is 'none'
+        // Check if it has an audio codec and either no video codec, video codec is 'none', or 'unknown'
         return media.acodec && 
                media.acodec !== 'none' && 
-               (!media.vcodec || media.vcodec === 'none')
+               (!media.vcodec || media.vcodec === 'none' || media.vcodec === 'unknown')
       })
 
       // If no audio-only streams found, try alternative filtering
