@@ -7,7 +7,6 @@ const corsHeaders = {
 interface YouTubeRequest {
   url: string;
   format?: string;
-  apifyToken?: string;
 }
 
 interface ApifyRunInput {
@@ -25,7 +24,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { url, format = 'mp3', apifyToken }: YouTubeRequest = await req.json()
+    const { url, format = 'mp3' }: YouTubeRequest = await req.json()
 
     if (!url) {
       return new Response(
@@ -55,14 +54,14 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Get Apify token from environment or request
-    const finalApifyToken = Deno.env.get('APIFY_TOKEN') || apifyToken
-    if (!finalApifyToken) {
-      console.error('APIFY_TOKEN environment variable is not set and no token provided in request')
+    // Get Apify token from environment
+    const apifyToken = Deno.env.get('APIFY_TOKEN')
+    if (!apifyToken) {
+      console.error('APIFY_TOKEN environment variable is not set')
       return new Response(
         JSON.stringify({ 
           success: false,
-          error: 'APIFY_TOKEN not configured. Please provide an Apify token.' 
+          error: 'APIFY_TOKEN not configured' 
         }),
         { 
           status: 500, 
@@ -80,24 +79,29 @@ Deno.serve(async (req) => {
       },
     }
 
-    console.log('Starting Apify actor with input:', runInput)
+    console.log('Starting Apify actor with input:', JSON.stringify(runInput))
 
-    // Start the Apify actor
-    const runResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs?token=${finalApifyToken}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(runInput),
-    })
+    // Start the Apify actor with timeout
+    const runResponse = await Promise.race([
+      fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs?token=${apifyToken}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(runInput),
+      }),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout starting Apify actor')), 30000)
+      )
+    ])
 
     if (!runResponse.ok) {
       const errorText = await runResponse.text()
-      console.error('Failed to start Apify actor:', errorText)
+      console.error('Failed to start Apify actor:', runResponse.status, errorText)
       return new Response(
         JSON.stringify({ 
           success: false,
-          error: 'Failed to start download process' 
+          error: `Failed to start download process: ${runResponse.status} ${errorText}` 
         }),
         { 
           status: 500, 
@@ -110,30 +114,69 @@ Deno.serve(async (req) => {
     const runId = runData.data.id
     console.log('Apify run started with ID:', runId)
 
-    // Wait for the run to complete (with timeout)
+    // Wait for the run to complete with shorter intervals and better error handling
     let attempts = 0
-    const maxAttempts = 60 // 5 minutes timeout (5 second intervals)
+    const maxAttempts = 120 // 10 minutes timeout (5 second intervals)
     let runStatus = 'RUNNING'
+    let lastError = null
 
     while (runStatus === 'RUNNING' && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 5000)) // Wait 5 seconds
       
-      const statusResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${finalApifyToken}`)
-      if (statusResponse.ok) {
-        const statusData = await statusResponse.json()
-        runStatus = statusData.data.status
-        console.log('Run status:', runStatus)
+      try {
+        const statusResponse = await Promise.race([
+          fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${apifyToken}`),
+          new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout checking run status')), 10000)
+          )
+        ])
+        
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json()
+          runStatus = statusData.data.status
+          console.log(`Run status check ${attempts + 1}/${maxAttempts}: ${runStatus}`)
+          
+          // Log additional details if available
+          if (statusData.data.stats) {
+            console.log('Run stats:', statusData.data.stats)
+          }
+        } else {
+          console.error('Failed to check run status:', statusResponse.status)
+          lastError = `Status check failed: ${statusResponse.status}`
+        }
+      } catch (error) {
+        console.error('Error checking run status:', error)
+        lastError = error instanceof Error ? error.message : 'Unknown error checking status'
       }
       
       attempts++
     }
 
     if (runStatus !== 'SUCCEEDED') {
-      console.error('Apify run failed or timed out. Status:', runStatus)
+      console.error('Apify run failed or timed out. Final status:', runStatus)
+      console.error('Last error:', lastError)
+      
+      // Try to get run details for more info
+      try {
+        const runDetailsResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${apifyToken}`)
+        if (runDetailsResponse.ok) {
+          const runDetails = await runDetailsResponse.json()
+          console.error('Run details:', JSON.stringify(runDetails.data, null, 2))
+        }
+      } catch (e) {
+        console.error('Failed to get run details:', e)
+      }
+      
       return new Response(
         JSON.stringify({ 
           success: false,
-          error: 'Download process failed or timed out' 
+          error: `Download process failed. Status: ${runStatus}. ${lastError || ''}`,
+          debug: {
+            runId,
+            finalStatus: runStatus,
+            attempts,
+            lastError
+          }
         }),
         { 
           status: 500, 
@@ -142,20 +185,66 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Get the dataset ID and fetch results
-    const runDetailsResponse = await fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${finalApifyToken}`)
-    const runDetails = await runDetailsResponse.json()
-    const datasetId = runDetails.data.defaultDatasetId
+    console.log('Apify run completed successfully, fetching results...')
 
-    // Fetch the results from the dataset
-    const resultsResponse = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${finalApifyToken}`)
-    const results = await resultsResponse.json()
-
-    if (!results || results.length === 0) {
+    // Get the dataset ID and fetch results with timeout
+    const runDetailsResponse = await Promise.race([
+      fetch(`https://api.apify.com/v2/acts/jvDjDIPtCZAcZo9jb/runs/${runId}?token=${apifyToken}`),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout fetching run details')), 15000)
+      )
+    ])
+    
+    if (!runDetailsResponse.ok) {
+      console.error('Failed to get run details:', runDetailsResponse.status)
       return new Response(
         JSON.stringify({ 
           success: false,
-          error: 'No results found' 
+          error: 'Failed to get run details' 
+        }),
+        { 
+          status: 500, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
+    }
+    
+    const runDetails = await runDetailsResponse.json()
+    const datasetId = runDetails.data.defaultDatasetId
+    console.log('Dataset ID:', datasetId)
+
+    // Fetch the results from the dataset with timeout
+    const resultsResponse = await Promise.race([
+      fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${apifyToken}`),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout fetching results')), 15000)
+      )
+    ])
+    
+    if (!resultsResponse.ok) {
+      console.error('Failed to fetch results:', resultsResponse.status)
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: 'Failed to fetch results' 
+        }),
+        { 
+          status: 500, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
+    }
+    
+    const results = await resultsResponse.json()
+    console.log('Results fetched, count:', results.length)
+
+    if (!results || results.length === 0) {
+      console.error('No results found in dataset')
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: 'No results found',
+          debug: { datasetId, runId }
         }),
         { 
           status: 404, 
@@ -165,134 +254,83 @@ Deno.serve(async (req) => {
     }
 
     const videoData = results[0]
-    console.log('Full video data structure:', JSON.stringify(videoData, null, 2))
-
-    // Log the medias array structure for debugging
-    if (videoData.medias && Array.isArray(videoData.medias)) {
-      console.log('Total medias found:', videoData.medias.length)
-      console.log('First few medias:', JSON.stringify(videoData.medias.slice(0, 3), null, 2))
-    } else {
-      console.log('No medias array found or it is not an array')
-    }
+    console.log('Video data keys:', Object.keys(videoData))
+    console.log('Video title:', videoData.title)
+    console.log('Video medias count:', videoData.medias?.length || 0)
 
     // Enhanced audio stream selection logic
     let audioMedia = null
     if (videoData.medias && Array.isArray(videoData.medias)) {
-      // Define recognized audio extensions and codecs
-      const audioExtensions = ['mp3', 'aac', 'm4a', 'ogg', 'wav', 'flac', 'opus', 'wma', 'webm']
-      const audioCodecs = ['mp3', 'aac', 'vorbis', 'opus', 'flac', 'mp4a']
+      console.log('Processing medias array...')
       
-      // More comprehensive audio stream detection
-      const potentialAudioStreams = videoData.medias.filter((media: any) => {
-        // Log each media for debugging
-        console.log('Checking media:', {
-          extension: media.extension,
-          acodec: media.acodec,
-          vcodec: media.vcodec,
-          format: media.format,
-          type: media.type,
-          is_audio: media.is_audio,
-          quality: media.quality,
-          url: media.url ? 'present' : 'missing'
-        })
-
-        // Multiple ways to identify audio streams
-        const conditions = {
-          hasAudioCodec: media.acodec && media.acodec !== 'none' && audioCodecs.some(codec => 
-            media.acodec.toLowerCase().includes(codec)
-          ),
-          isAudioOnly: !media.vcodec || media.vcodec === 'none' || media.vcodec === 'unknown',
-          isMarkedAsAudio: media.is_audio === true || media.type === 'audio',
-          hasAudioExtension: media.extension && audioExtensions.includes(media.extension.toLowerCase()),
-          hasAudioInFormat: media.format && audioExtensions.some(ext => 
-            media.format.toLowerCase().includes(ext)
-          ),
-          hasAudioInFormatId: media.format_id && audioExtensions.some(ext => 
-            media.format_id.toLowerCase().includes(ext)
-          ),
-          hasValidUrl: media.url && media.url.length > 0
-        }
-
-        console.log('Media conditions:', conditions)
+      // Look for audio streams with more flexible criteria
+      const audioStreams = videoData.medias.filter((media: any) => {
+        const hasUrl = media.url && media.url.length > 0
+        const isAudio = media.is_audio === true || 
+                       media.type === 'audio' ||
+                       (media.acodec && media.acodec !== 'none') ||
+                       (media.extension && ['mp3', 'aac', 'm4a', 'ogg', 'wav', 'flac', 'opus'].includes(media.extension.toLowerCase())) ||
+                       (!media.vcodec || media.vcodec === 'none')
         
-        // A stream is considered audio if it meets multiple criteria and has a valid URL
-        const isAudioStream = conditions.hasValidUrl && (
-          conditions.hasAudioCodec || 
-          conditions.isMarkedAsAudio || 
-          conditions.hasAudioExtension || 
-          conditions.hasAudioInFormat ||
-          conditions.hasAudioInFormatId ||
-          (conditions.isAudioOnly && media.acodec)
-        )
-
-        console.log('Is audio stream:', isAudioStream)
-        return isAudioStream
+        console.log(`Media check - URL: ${!!hasUrl}, Audio: ${isAudio}, Extension: ${media.extension}, ACodec: ${media.acodec}, VCodec: ${media.vcodec}`)
+        
+        return hasUrl && isAudio
       })
 
-      console.log('Found potential audio streams:', potentialAudioStreams.length)
+      console.log('Found audio streams:', audioStreams.length)
 
-      if (potentialAudioStreams.length > 0) {
-        // Sort streams to prioritize the best quality audio
-        potentialAudioStreams.sort((a: any, b: any) => {
-          // First, prioritize exact format match
+      if (audioStreams.length > 0) {
+        // Sort by preference: exact format match, then quality
+        audioStreams.sort((a: any, b: any) => {
           const aMatchesFormat = a.extension?.toLowerCase() === format.toLowerCase()
           const bMatchesFormat = b.extension?.toLowerCase() === format.toLowerCase()
           
           if (aMatchesFormat && !bMatchesFormat) return -1
           if (!aMatchesFormat && bMatchesFormat) return 1
           
-          // Then prioritize audio-only streams
-          const aIsAudioOnly = !a.vcodec || a.vcodec === 'none' || a.vcodec === 'unknown'
-          const bIsAudioOnly = !b.vcodec || b.vcodec === 'none' || b.vcodec === 'unknown'
-          
-          if (aIsAudioOnly && !bIsAudioOnly) return -1
-          if (!aIsAudioOnly && bIsAudioOnly) return 1
-          
-          // Finally sort by quality/bitrate (highest first)
+          // Sort by quality/bitrate
           const aBitrate = parseInt(a.abr || a.bitrate || a.tbr || '0')
           const bBitrate = parseInt(b.abr || b.bitrate || b.tbr || '0')
           return bBitrate - aBitrate
         })
 
-        console.log('Sorted audio streams:', potentialAudioStreams.map(s => ({
-          extension: s.extension,
-          quality: s.quality,
-          abr: s.abr,
-          bitrate: s.bitrate,
-          acodec: s.acodec
-        })))
-
-        // Select the best audio stream
-        audioMedia = potentialAudioStreams[0]
+        audioMedia = audioStreams[0]
         console.log('Selected audio media:', {
           extension: audioMedia.extension,
           quality: audioMedia.quality,
           acodec: audioMedia.acodec,
-          url: audioMedia.url ? 'present' : 'missing'
+          abr: audioMedia.abr
+        })
+      } else {
+        // Log all available medias for debugging
+        console.log('No audio streams found. Available medias:')
+        videoData.medias.forEach((media: any, index: number) => {
+          console.log(`Media ${index}:`, {
+            extension: media.extension,
+            acodec: media.acodec,
+            vcodec: media.vcodec,
+            type: media.type,
+            is_audio: media.is_audio,
+            quality: media.quality,
+            hasUrl: !!media.url
+          })
         })
       }
+    } else {
+      console.log('No medias array found or it is not an array')
     }
 
     if (!audioMedia) {
-      console.error('No audio media found after filtering')
-      console.error('Available medias summary:', videoData.medias?.map(m => ({
-        extension: m.extension,
-        acodec: m.acodec,
-        vcodec: m.vcodec,
-        format: m.format,
-        type: m.type,
-        is_audio: m.is_audio,
-        hasUrl: !!m.url
-      })))
-      
+      console.error('No suitable audio media found')
       return new Response(
         JSON.stringify({ 
           success: false,
           error: 'No audio format available for this video',
           debug: {
             totalMedias: videoData.medias?.length || 0,
-            mediasWithUrls: videoData.medias?.filter(m => m.url).length || 0,
-            requestedFormat: format
+            videoTitle: videoData.title,
+            requestedFormat: format,
+            availableFormats: videoData.medias?.map((m: any) => m.extension).filter(Boolean) || []
           }
         }),
         { 
@@ -316,7 +354,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log('Returning successful response:', response)
+    console.log('Returning successful response for:', videoData.title)
 
     return new Response(
       JSON.stringify(response),
