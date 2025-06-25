@@ -7,7 +7,7 @@ interface ExtractAudioFormProps {
 
 const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
   const [url, setUrl] = useState('');
-  const [format, setFormat] = useState('m4a');
+  const [format, setFormat] = useState('mp3');
   const [urlType, setUrlType] = useState<'youtube' | 'tiktok'>('youtube');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,7 +62,7 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
           Extract Audio from YouTube Videos
         </h3>
         <p className="text-gray-600 dark:text-gray-400 text-center max-w-md">
-          Extract high-quality audio tracks from YouTube videos in your preferred format
+          Extract high-quality MP3 audio tracks from YouTube videos
         </p>
       </div>
       
@@ -133,7 +133,7 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
           )}
         </div>
         
-        {/* Format selection */}
+        {/* Format selection - MP3 only */}
         <div className="mb-6">
           <label htmlFor="audio-format" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Audio Format
@@ -145,12 +145,10 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
             className="block w-full py-3 px-4 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-colors"
             disabled={isSubmitting}
           >
-            <option value="m4a">M4A (Recommended)</option>
-            <option value="webm">WebM (Opus Audio)</option>
-            <option value="mp4">MP4 (Audio Track)</option>
+            <option value="mp3">MP3 (High Quality)</option>
           </select>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            These formats are commonly available from YouTube streams
+            MP3 format provides the best compatibility and quality for audio extraction
           </p>
         </div>
         
@@ -165,7 +163,7 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
                 : 'bg-teal-600 hover:bg-teal-700 text-white'
             }`}
           >
-            {isSubmitting ? 'Extracting Audio...' : 'Extract Audio'}
+            {isSubmitting ? 'Extracting MP3...' : 'Extract MP3'}
           </button>
         </div>
       </form>
