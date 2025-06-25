@@ -25,7 +25,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { url, format = 'mp3', apifyToken }: YouTubeRequest = await req.json()
+    const { url, format = 'm4a', apifyToken }: YouTubeRequest = await req.json()
 
     if (!url) {
       return new Response(
@@ -259,34 +259,38 @@ Deno.serve(async (req) => {
     console.log('Video title:', videoData.title)
     console.log('Video medias count:', videoData.medias?.length || 0)
 
-    // Enhanced audio stream selection logic - more inclusive approach
+    // Improved audio stream selection with better fallback logic
     let audioMedia = null
     if (videoData.medias && Array.isArray(videoData.medias)) {
       console.log('Processing medias array...')
       
-      // Look for streams with audio tracks (more inclusive criteria)
+      // Define format priority order - commonly available formats first
+      const formatPriority = ['m4a', 'webm', 'mp4', 'aac', 'opus', 'ogg', 'mp3', 'wav', 'flac']
+      
+      // Look for streams with audio (very inclusive approach)
       const audioStreams = videoData.medias.filter((media: any) => {
         const hasUrl = media.url && media.url.length > 0
         
-        // More inclusive audio detection - accept streams that have audio tracks
+        // Accept any stream that has audio or could contain audio
         const hasAudioCodec = media.acodec && media.acodec !== 'none'
         const isAudioOnly = media.is_audio === true || media.type === 'audio'
         const hasAudioExtension = media.extension && ['mp3', 'aac', 'm4a', 'ogg', 'wav', 'flac', 'opus', 'webm', 'mp4'].includes(media.extension.toLowerCase())
-        const noVideoCodec = !media.vcodec || media.vcodec === 'none'
+        const isVideoWithAudio = media.vcodec && media.vcodec !== 'none' && hasAudioCodec
+        const isContainerFormat = media.extension && ['mp4', 'webm', 'mkv', 'avi'].includes(media.extension.toLowerCase())
         
-        // Accept if it has audio codec OR is marked as audio OR has audio extension
-        // This includes video files with audio tracks that can be extracted
-        const isAudio = hasAudioCodec || isAudioOnly || hasAudioExtension || noVideoCodec
+        // Very inclusive: accept if it has audio codec, is audio-only, has audio extension, 
+        // is video with audio, or is a container format that typically has audio
+        const couldHaveAudio = hasAudioCodec || isAudioOnly || hasAudioExtension || isVideoWithAudio || isContainerFormat
         
-        console.log(`Media check - URL: ${!!hasUrl}, Audio: ${isAudio}, Extension: ${media.extension}, ACodec: ${media.acodec}, VCodec: ${media.vcodec}, IsAudioOnly: ${isAudioOnly}`)
+        console.log(`Media check - URL: ${!!hasUrl}, CouldHaveAudio: ${couldHaveAudio}, Extension: ${media.extension}, ACodec: ${media.acodec}, VCodec: ${media.vcodec}`)
         
-        return hasUrl && isAudio
+        return hasUrl && couldHaveAudio
       })
 
       console.log('Found potential audio streams:', audioStreams.length)
 
       if (audioStreams.length > 0) {
-        // Enhanced sorting: prioritize audio-only streams, then format match, then quality
+        // Enhanced sorting with format priority and fallback logic
         audioStreams.sort((a: any, b: any) => {
           // First priority: audio-only streams
           const aIsAudioOnly = a.is_audio === true || a.type === 'audio' || (!a.vcodec || a.vcodec === 'none')
@@ -295,12 +299,16 @@ Deno.serve(async (req) => {
           if (aIsAudioOnly && !bIsAudioOnly) return -1
           if (!aIsAudioOnly && bIsAudioOnly) return 1
           
-          // Second priority: exact format match
-          const aMatchesFormat = a.extension?.toLowerCase() === format.toLowerCase()
-          const bMatchesFormat = b.extension?.toLowerCase() === format.toLowerCase()
+          // Second priority: format priority (commonly available formats)
+          const aFormatIndex = formatPriority.indexOf(a.extension?.toLowerCase() || '')
+          const bFormatIndex = formatPriority.indexOf(b.extension?.toLowerCase() || '')
           
-          if (aMatchesFormat && !bMatchesFormat) return -1
-          if (!aMatchesFormat && bMatchesFormat) return 1
+          const aFormatPriority = aFormatIndex === -1 ? 999 : aFormatIndex
+          const bFormatPriority = bFormatIndex === -1 ? 999 : bFormatIndex
+          
+          if (aFormatPriority !== bFormatPriority) {
+            return aFormatPriority - bFormatPriority
+          }
           
           // Third priority: quality/bitrate (higher is better)
           const aBitrate = parseInt(a.abr || a.bitrate || a.tbr || '0')
@@ -318,42 +326,21 @@ Deno.serve(async (req) => {
           isAudioOnly: audioMedia.is_audio === true || audioMedia.type === 'audio' || (!audioMedia.vcodec || audioMedia.vcodec === 'none')
         })
       } else {
-        // If no streams found with the inclusive criteria, try even more permissive approach
-        console.log('No audio streams found with inclusive criteria, trying permissive approach...')
+        // Ultimate fallback: take any stream with a URL
+        console.log('No audio streams found, trying ultimate fallback...')
         
-        const permissiveStreams = videoData.medias.filter((media: any) => {
-          const hasUrl = media.url && media.url.length > 0
-          // Accept any stream that has a URL and is not explicitly video-only
-          const notVideoOnly = !(media.vcodec && media.vcodec !== 'none' && (!media.acodec || media.acodec === 'none'))
-          
-          console.log(`Permissive check - URL: ${!!hasUrl}, NotVideoOnly: ${notVideoOnly}, Extension: ${media.extension}, ACodec: ${media.acodec}, VCodec: ${media.vcodec}`)
-          
-          return hasUrl && notVideoOnly
-        })
+        const anyStreamWithUrl = videoData.medias.find((media: any) => media.url && media.url.length > 0)
         
-        if (permissiveStreams.length > 0) {
-          // Sort by preference for common formats and quality
-          permissiveStreams.sort((a: any, b: any) => {
-            const aIsCommonFormat = ['mp4', 'webm', 'm4a', 'mp3'].includes(a.extension?.toLowerCase())
-            const bIsCommonFormat = ['mp4', 'webm', 'm4a', 'mp3'].includes(b.extension?.toLowerCase())
-            
-            if (aIsCommonFormat && !bIsCommonFormat) return -1
-            if (!aIsCommonFormat && bIsCommonFormat) return 1
-            
-            const aBitrate = parseInt(a.abr || a.bitrate || a.tbr || '0')
-            const bBitrate = parseInt(b.abr || b.bitrate || b.tbr || '0')
-            return bBitrate - aBitrate
-          })
-          
-          audioMedia = permissiveStreams[0]
-          console.log('Selected permissive audio media:', {
+        if (anyStreamWithUrl) {
+          audioMedia = anyStreamWithUrl
+          console.log('Selected fallback media:', {
             extension: audioMedia.extension,
             acodec: audioMedia.acodec,
             vcodec: audioMedia.vcodec
           })
         } else {
           // Log all available medias for debugging
-          console.log('No suitable streams found. Available medias:')
+          console.log('No streams with URLs found. Available medias:')
           videoData.medias.forEach((media: any, index: number) => {
             console.log(`Media ${index}:`, {
               extension: media.extension,
@@ -362,7 +349,8 @@ Deno.serve(async (req) => {
               type: media.type,
               is_audio: media.is_audio,
               quality: media.quality,
-              hasUrl: !!media.url
+              hasUrl: !!media.url,
+              urlLength: media.url?.length || 0
             })
           })
         }
@@ -372,16 +360,18 @@ Deno.serve(async (req) => {
     }
 
     if (!audioMedia) {
-      console.error('No suitable audio media found')
+      console.error('No suitable media found')
       return new Response(
         JSON.stringify({ 
           success: false,
-          error: 'No audio format available for this video',
+          error: 'No downloadable media available for this video. The video may be restricted or have no audio track.',
           debug: {
             totalMedias: videoData.medias?.length || 0,
             videoTitle: videoData.title,
             requestedFormat: format,
-            availableFormats: videoData.medias?.map((m: any) => m.extension).filter(Boolean) || []
+            availableFormats: videoData.medias?.map((m: any) => m.extension).filter(Boolean) || [],
+            hasMediasArray: Array.isArray(videoData.medias),
+            mediasWithUrls: videoData.medias?.filter((m: any) => m.url && m.url.length > 0).length || 0
           }
         }),
         { 
@@ -391,7 +381,8 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Return the download information
+    // Return the download information with the actual available format
+    const actualFormat = audioMedia.extension || format
     const response = {
       success: true,
       data: {
@@ -400,12 +391,17 @@ Deno.serve(async (req) => {
         duration: videoData.duration || 0,
         thumbnail: videoData.thumbnail || '',
         downloadUrl: audioMedia.url,
-        format: audioMedia.extension || format,
-        quality: audioMedia.quality || audioMedia.abr || audioMedia.bitrate || 'standard'
+        format: actualFormat,
+        quality: audioMedia.quality || audioMedia.abr || audioMedia.bitrate || 'standard',
+        // Include additional info for debugging
+        originalFormat: format,
+        actualFormat: actualFormat,
+        hasAudioCodec: !!(audioMedia.acodec && audioMedia.acodec !== 'none'),
+        isAudioOnly: audioMedia.is_audio === true || audioMedia.type === 'audio' || (!audioMedia.vcodec || audioMedia.vcodec === 'none')
       }
     }
 
-    console.log('Returning successful response for:', videoData.title)
+    console.log('Returning successful response for:', videoData.title, 'Format:', actualFormat)
 
     return new Response(
       JSON.stringify(response),

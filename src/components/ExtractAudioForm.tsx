@@ -7,7 +7,7 @@ interface ExtractAudioFormProps {
 
 const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
   const [url, setUrl] = useState('');
-  const [format, setFormat] = useState('mp3');
+  const [format, setFormat] = useState('m4a');
   const [urlType, setUrlType] = useState<'youtube' | 'tiktok'>('youtube');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -145,12 +145,13 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
             className="block w-full py-3 px-4 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-colors"
             disabled={isSubmitting}
           >
-            <option value="mp3">MP3 (Recommended)</option>
-            <option value="m4a">M4A</option>
-            <option value="wav">WAV</option>
-            <option value="flac">FLAC</option>
-            <option value="ogg">OGG</option>
+            <option value="m4a">M4A (Recommended)</option>
+            <option value="webm">WebM (Opus Audio)</option>
+            <option value="mp4">MP4 (Audio Track)</option>
           </select>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            These formats are commonly available from YouTube streams
+          </p>
         </div>
         
         {/* Submit button */}
