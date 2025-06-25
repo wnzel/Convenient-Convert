@@ -23,7 +23,39 @@ export class YouTubeDownloaderService {
       body: JSON.stringify(body)
     });
 
-    const data = await response.json();
+    // Check if the response is ok before attempting to parse JSON
+    if (!response.ok) {
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      
+      try {
+        // Try to get the response text first
+        const responseText = await response.text();
+        
+        // Try to parse as JSON if possible
+        try {
+          const errorData = JSON.parse(responseText);
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch {
+          // If not JSON, use the text response (might be HTML error page)
+          errorMessage = responseText.length > 200 
+            ? `Server error: ${responseText.substring(0, 200)}...` 
+            : responseText || errorMessage;
+        }
+      } catch {
+        // If we can't read the response, use the default error message
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      // If JSON parsing fails, get the response text for debugging
+      const responseText = await response.text();
+      throw new Error(`Invalid JSON response from server. Response: ${responseText.substring(0, 200)}...`);
+    }
 
     if (!data.success) {
       throw new Error(data.error || 'Failed to get download URL');
