@@ -1,14 +1,10 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-// Define CORS headers for cross-origin requests
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS'
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// Start serving requests
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -153,19 +149,86 @@ serve(async (req: Request) => {
     
     let audioMedia = null;
     if (videoData.medias && Array.isArray(videoData.medias)) {
-      // Find the best available audio-only stream (m4a, mp3, opus, etc.)
-      audioMedia = videoData.medias
-        .filter((m: any) => hasValidUrl(m) && (m.is_audio === true || m.type === 'audio' || m.vcodec === 'none'))
-        .sort((a: any, b: any) => (parseInt(b.abr || '0') - parseInt(a.abr || '0')))[0];
+      console.log('Available media streams:', videoData.medias.length);
       
-      // Fallback: if no audio-only stream, find any stream with an audio codec
+      // Filter out streams without valid URLs
+      const validStreams = videoData.medias.filter(hasValidUrl);
+      console.log('Valid streams with URLs:', validStreams.length);
+      
+      // Priority 1: Audio-only streams (vcodec is 'none' and acodec is present)
+      const audioOnlyStreams = validStreams.filter((m: any) => 
+        (m.vcodec === 'none' || m.is_audio === true || m.type === 'audio') && 
+        m.acodec && m.acodec !== 'none'
+      );
+      
+      if (audioOnlyStreams.length > 0) {
+        // Sort by audio bitrate (abr) descending, fallback to tbr if abr not available
+        audioMedia = audioOnlyStreams.sort((a: any, b: any) => {
+          const aRate = parseInt(a.abr || a.tbr || '0');
+          const bRate = parseInt(b.abr || b.tbr || '0');
+          return bRate - aRate;
+        })[0];
+        console.log('Selected audio-only stream with bitrate:', audioMedia.abr || audioMedia.tbr);
+      }
+      
+      // Priority 2: Combined video/audio streams with audio codec
       if (!audioMedia) {
-        audioMedia = videoData.medias.find((m: any) => hasValidUrl(m) && m.acodec && m.acodec !== 'none');
+        const combinedStreams = validStreams.filter((m: any) => 
+          m.acodec && m.acodec !== 'none' && m.vcodec && m.vcodec !== 'none'
+        );
+        
+        if (combinedStreams.length > 0) {
+          // Sort by total bitrate (tbr) descending, fallback to abr
+          audioMedia = combinedStreams.sort((a: any, b: any) => {
+            const aRate = parseInt(a.tbr || a.abr || '0');
+            const bRate = parseInt(b.tbr || b.abr || '0');
+            return bRate - aRate;
+          })[0];
+          console.log('Selected combined stream with bitrate:', audioMedia.tbr || audioMedia.abr);
+        }
+      }
+      
+      // Priority 3: Any stream with audio codec (last resort)
+      if (!audioMedia) {
+        const anyAudioStreams = validStreams.filter((m: any) => 
+          m.acodec && m.acodec !== 'none'
+        );
+        
+        if (anyAudioStreams.length > 0) {
+          audioMedia = anyAudioStreams.sort((a: any, b: any) => {
+            const aRate = parseInt(a.tbr || a.abr || a.br || '0');
+            const bRate = parseInt(b.tbr || b.abr || b.br || '0');
+            return bRate - aRate;
+          })[0];
+          console.log('Selected fallback audio stream with bitrate:', audioMedia.tbr || audioMedia.abr || audioMedia.br);
+        }
+      }
+      
+      // Priority 4: Streams with common audio extensions (final fallback)
+      if (!audioMedia) {
+        const audioExtensions = ['mp3', 'm4a', 'aac', 'ogg', 'opus', 'wav'];
+        const extensionStreams = validStreams.filter((m: any) => 
+          m.ext && audioExtensions.includes(m.ext.toLowerCase())
+        );
+        
+        if (extensionStreams.length > 0) {
+          audioMedia = extensionStreams[0];
+          console.log('Selected stream by audio extension:', audioMedia.ext);
+        }
       }
     }
 
     if (!audioMedia) {
       console.error('No suitable media found for audio extraction.');
+      console.log('Available media streams debug info:', videoData.medias?.map((m: any) => ({
+        ext: m.ext,
+        acodec: m.acodec,
+        vcodec: m.vcodec,
+        is_audio: m.is_audio,
+        type: m.type,
+        hasUrl: hasValidUrl(m)
+      })));
+      
       return new Response(JSON.stringify({
         success: false,
         error: 'No audio format available for this video. The video may be restricted, have no audio track, or be unavailable for download.',
