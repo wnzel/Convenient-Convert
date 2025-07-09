@@ -31,167 +31,51 @@ Deno.serve(async (req: Request) => {
 
     console.log('Processing YouTube URL:', url);
 
-    // Generate a unique filename for the temporary audio file
-    const tempFileName = `audio_${Date.now()}.${format}`;
-    const tempFilePath = `/tmp/${tempFileName}`;
+    // Extract video ID from URL
+    let videoId = '';
+    if (url.includes('youtube.com/watch?v=')) {
+      videoId = url.split('v=')[1]?.split('&')[0] || '';
+    } else if (url.includes('youtu.be/')) {
+      videoId = url.split('youtu.be/')[1]?.split('?')[0] || '';
+    } else if (url.includes('youtube.com/embed/')) {
+      videoId = url.split('embed/')[1]?.split('?')[0] || '';
+    }
 
-    console.log('Extracting audio to:', tempFilePath);
-
-    // First, get video information using yt-dlp directly
-    console.log('Getting video information...');
-    let videoInfo;
-    try {
-      const infoCommand = new Deno.Command("yt-dlp", {
-        args: [
-          "--dump-json",
-          "--no-warnings",
-          "--no-playlist",
-          "--ignore-errors",
-          url
-        ],
-        stdout: "piped",
-        stderr: "piped"
-      });
-
-      const infoProcess = infoCommand.spawn();
-      const infoOutput = await infoProcess.output();
-
-      if (!infoOutput.success) {
-        const errorText = new TextDecoder().decode(infoOutput.stderr);
-        console.error('Failed to get video info:', errorText);
-        
-        // Check if yt-dlp is available
-        if (errorText.includes('command not found') || errorText.includes('No such file')) {
-          return new Response(JSON.stringify({
-            success: false,
-            error: 'YouTube downloader service is not available. Please try again later.'
-          }), {
-            status: 503,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          });
-        }
-        
-        return new Response(JSON.stringify({
-          success: false,
-          error: 'Failed to retrieve video information. The video may be private, restricted, or unavailable.'
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-
-      const infoText = new TextDecoder().decode(infoOutput.stdout);
-      videoInfo = JSON.parse(infoText);
-      console.log('Video info retrieved:', videoInfo.title);
-    } catch (error) {
-      console.error('Failed to get video info:', error);
+    if (!videoId) {
       return new Response(JSON.stringify({
         success: false,
-        error: 'Failed to retrieve video information. The video may be private, restricted, or unavailable.'
+        error: 'Could not extract video ID from URL'
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    // Extract audio using yt-dlp directly
-    try {
-      const command = new Deno.Command("yt-dlp", {
-        args: [
-          url,
-          "--extract-audio",
-          "--audio-format", format,
-          "--audio-quality", "0", // Best quality
-          "--output", tempFilePath,
-          "--no-playlist",
-          "--no-warnings",
-          "--ignore-errors"
-        ],
-        stdout: "piped",
-        stderr: "piped"
-      });
+    console.log('Extracted video ID:', videoId);
 
-      const process = command.spawn();
-      const output = await process.output();
+    // Use a public YouTube API alternative or web scraping approach
+    // For now, we'll return a mock response to demonstrate the structure
+    // In a real implementation, you would need to use a service like:
+    // - YouTube Data API v3 (requires API key)
+    // - A third-party service
+    // - Web scraping (complex and may violate ToS)
+    
+    // Mock video information
+    const videoInfo = {
+      title: 'Sample Video Title',
+      uploader: 'Sample Channel',
+      duration: 180, // 3 minutes
+      thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
+    };
 
-      if (!output.success) {
-        const errorText = new TextDecoder().decode(output.stderr);
-        console.error('Audio extraction failed:', errorText);
-        
-        // Check if yt-dlp is available
-        if (errorText.includes('command not found') || errorText.includes('No such file')) {
-          return new Response(JSON.stringify({
-            success: false,
-            error: 'YouTube downloader service is not available. Please try again later.'
-          }), {
-            status: 503,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          });
-        }
-        
-        return new Response(JSON.stringify({
-          success: false,
-          error: 'Failed to extract audio from video. The video may have restrictions or no audio track.'
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      
-      console.log('Audio extraction completed');
-    } catch (error) {
-      console.error('Audio extraction failed:', error);
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Failed to extract audio from video. The video may have restrictions or no audio track.'
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
-    // Read the extracted audio file
-    let audioData;
-    try {
-      audioData = await Deno.readFile(tempFilePath);
-      console.log('Audio file read successfully, size:', audioData.length, 'bytes');
-    } catch (error) {
-      console.error('Failed to read audio file:', error);
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Failed to read extracted audio file.'
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
-    // Clean up temporary files
-    try {
-      await Deno.remove(tempFilePath);
-    } catch (error) {
-      console.warn('Failed to clean up temporary file:', error);
-    }
-
-    // Create response with audio data
-    const mimeType = format === 'mp3' ? 'audio/mpeg' : 
-                    format === 'wav' ? 'audio/wav' :
-                    format === 'aac' ? 'audio/aac' :
-                    format === 'ogg' ? 'audio/ogg' :
-                    'audio/mpeg';
-
-    // Return the audio file directly
-    return new Response(audioData, {
-      headers: {
-        ...corsHeaders,
-        'Content-Type': mimeType,
-        'Content-Disposition': `attachment; filename="${videoInfo.title?.replace(/[<>:"/\\|?*]/g, '') || 'audio'}.${format}"`,
-        'Content-Length': audioData.length.toString(),
-        'X-Video-Title': videoInfo.title || 'Unknown Title',
-        'X-Video-Author': videoInfo.uploader || 'Unknown Author',
-        'X-Video-Duration': videoInfo.duration?.toString() || '0',
-        'X-Video-Thumbnail': videoInfo.thumbnail || ''
-      }
+    // Since we can't actually extract audio in this environment,
+    // we'll return an error message explaining the limitation
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Audio extraction is currently not available. This feature requires additional server-side tools that are not available in the current environment. Please try uploading audio files directly for conversion instead.'
+    }), {
+      status: 503,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
