@@ -34,7 +34,6 @@ Deno.serve(async (req: Request) => {
     // Generate a unique filename for the temporary audio file
     const tempFileName = `audio_${Date.now()}.${format}`;
     const tempFilePath = `/tmp/${tempFileName}`;
-    const infoFilePath = `/tmp/info_${Date.now()}.json`;
 
     console.log('Extracting audio to:', tempFilePath);
 
@@ -47,6 +46,7 @@ Deno.serve(async (req: Request) => {
           "--dump-json",
           "--no-warnings",
           "--no-playlist",
+          "--ignore-errors",
           url
         ],
         stdout: "piped",
@@ -59,6 +59,18 @@ Deno.serve(async (req: Request) => {
       if (!infoOutput.success) {
         const errorText = new TextDecoder().decode(infoOutput.stderr);
         console.error('Failed to get video info:', errorText);
+        
+        // Check if yt-dlp is available
+        if (errorText.includes('command not found') || errorText.includes('No such file')) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'YouTube downloader service is not available. Please try again later.'
+          }), {
+            status: 503,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+        
         return new Response(JSON.stringify({
           success: false,
           error: 'Failed to retrieve video information. The video may be private, restricted, or unavailable.'
@@ -92,7 +104,8 @@ Deno.serve(async (req: Request) => {
           "--audio-quality", "0", // Best quality
           "--output", tempFilePath,
           "--no-playlist",
-          "--no-warnings"
+          "--no-warnings",
+          "--ignore-errors"
         ],
         stdout: "piped",
         stderr: "piped"
@@ -104,6 +117,18 @@ Deno.serve(async (req: Request) => {
       if (!output.success) {
         const errorText = new TextDecoder().decode(output.stderr);
         console.error('Audio extraction failed:', errorText);
+        
+        // Check if yt-dlp is available
+        if (errorText.includes('command not found') || errorText.includes('No such file')) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'YouTube downloader service is not available. Please try again later.'
+          }), {
+            status: 503,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+        
         return new Response(JSON.stringify({
           success: false,
           error: 'Failed to extract audio from video. The video may have restrictions or no audio track.'
@@ -173,7 +198,7 @@ Deno.serve(async (req: Request) => {
     console.error('Unhandled server error:', error);
     return new Response(JSON.stringify({
       success: false,
-      error: 'Internal server error.',
+      error: 'Internal server error. Please try again later.',
       details: error instanceof Error ? error.message : 'Unknown error'
     }), {
       status: 500,
