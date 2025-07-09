@@ -54,13 +54,13 @@ Deno.serve(async (req: Request) => {
     console.log('Extracted video ID:', videoId);
 
     // Check if APIFY_TOKEN is configured (if using Apify service)
-    const apifyToken = Deno.env.get('APIFY_TOKEN');
+    const apifyToken = Deno.env.get('APIFY_TOKEN') || Deno.env.get('VITE_APIFY_TOKEN');
     
     if (!apifyToken) {
       // Return a user-friendly error message when token is not configured
       return new Response(JSON.stringify({
         success: false,
-        error: 'YouTube audio extraction service is not properly configured. Please contact the administrator to set up the required API credentials.'
+        error: 'APIFY_TOKEN not configured'
       }), {
         status: 503,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -81,16 +81,6 @@ Deno.serve(async (req: Request) => {
     console.error('Unhandled server error:', error);
     
     // Handle specific error cases
-    if (error instanceof Error && error.message.includes('APIFY_TOKEN')) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'YouTube audio extraction service is not properly configured. Please contact the administrator.'
-      }), {
-        status: 503,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-    
     return new Response(JSON.stringify({
       success: false,
       error: 'Internal server error. Please try again later.',
