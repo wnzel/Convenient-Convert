@@ -1,11 +1,19 @@
+// Import FFmpeg utilities at the top level
+let createFFmpeg: any;
+let fetchFile: any;
+
 export class FileConverterService {
   private static ffmpeg: any = null;
 
   private static async loadFFmpeg() {
     if (this.ffmpeg) return this.ffmpeg;
     
-    // Dynamically import @ffmpeg/ffmpeg
-    const { createFFmpeg, fetchFile } = await import('@ffmpeg/ffmpeg');
+    // Dynamically import @ffmpeg/ffmpeg if not already imported
+    if (!createFFmpeg || !fetchFile) {
+      const ffmpegModule = await import('@ffmpeg/ffmpeg');
+      createFFmpeg = ffmpegModule.createFFmpeg;
+      fetchFile = ffmpegModule.fetchFile;
+    }
     
     this.ffmpeg = createFFmpeg({
       log: false,
