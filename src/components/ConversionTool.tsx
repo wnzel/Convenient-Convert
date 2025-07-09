@@ -418,6 +418,12 @@ const ConversionTool: React.FC = () => {
                             {file.error && (
                               <p className="text-sm text-red-500 mt-1">{file.error}</p>
                             )}
+                            {file.status === 'processing' && (
+                              <div className="flex items-center mt-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-500 mr-2"></div>
+                                <span className="text-sm text-primary-600 dark:text-primary-400">Converting...</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -455,19 +461,6 @@ const ConversionTool: React.FC = () => {
                     </div>
                   </div>
                   
-                  {(file.status === 'processing' || file.status === 'completed' || file.status === 'error' && file.progress > 0) && (
-                    <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          file.status === 'completed' 
-                            ? 'bg-green-500' 
-                            : file.status === 'error' ? 'bg-red-500'
-                            : 'bg-primary-500'
-                        }`}
-                        style={{ width: `${file.progress}%` }}
-                      />
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
