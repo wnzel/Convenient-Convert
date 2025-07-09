@@ -76,9 +76,60 @@ const ConversionTool: React.FC = () => {
 
     try {
       if (fileItem.type === 'extract') {
-        // For extracted audio, the download URL is already a blob URL
+        // Indicate that the download is starting
+        setFiles(prev => prev.map(f =>
+          f.id === fileItem.id ? { ...f, progress: 0, status: 'processing' } : f
+        ));
+
+        const response = await fetch(fileItem.downloadUrl);
+
+        if (!response.ok || !response.body) {
+          // For blob URLs, we can directly use them
+          if (fileItem.downloadUrl.startsWith('blob:')) {
+            const link = document.createElement('a');
+            link.href = fileItem.downloadUrl;
+            const cleanTitle = (fileItem.originalTitle || 'audio')
+                .replace(/[<>:"/\\|?*]/g, '') // Remove invalid filename characters
+                .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+                .trim();
+            link.download = `${cleanTitle}.${fileItem.targetFormat || 'mp3'}`;
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            setFiles(prev => prev.map(f =>
+                f.id === fileItem.id ? { ...f, progress: 100, status: 'completed' } : f
+            ));
+            return;
+          }
+          
+          throw new Error(`Failed to download: ${response.status} ${response.statusText}`);
+        }
+
+        const contentLength = response.headers.get('content-length');
+        const total = contentLength ? parseInt(contentLength, 10) : 0;
+        let loaded = 0;
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          loaded += value.length;
+          if (total > 0) {
+            const progress = Math.round((loaded / total) * 100);
+            setFiles(prev => prev.map(f =>
+              f.id === fileItem.id ? { ...f, progress } : f
+            ));
+          }
+        }
+
+        const audioBlob = new Blob(chunks, { type: 'audio/mpeg' });
+        const downloadUrl = URL.createObjectURL(audioBlob);
         const link = document.createElement('a');
-        link.href = fileItem.downloadUrl;
+        link.href = downloadUrl;
 
         // Sanitize the title for use as a filename
         const cleanTitle = (fileItem.originalTitle || 'audio')
@@ -90,14 +141,21 @@ const ConversionTool: React.FC = () => {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+
+        // Set status back to completed
+        setFiles(prev => prev.map(f =>
+            f.id === fileItem.id ? { ...f, progress: 100, status: 'completed' } : f
+        ));
       } else {
         // For regular file conversions
-        const link = document.createElement('a');
-        link.href = fileItem.downloadUrl;
-        link.download = `converted-${fileItem.file.name}${fileItem.targetFormat ? `.${fileItem.targetFormat}` : ''}`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        if (fileItem.downloadUrl.startsWith('blob:')) {
+          const link = document.createElement('a');
+          link.href = fileItem.downloadUrl;
+          link.download = `converted-${fileItem.file.name}${fileItem.targetFormat ? `.${fileItem.targetFormat}` : ''}`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
       }
     } catch (error) {
       console.error('Download error:', error);

@@ -21,34 +21,25 @@ export class YouTubeDownloaderService {
       body: JSON.stringify(body)
     });
 
+    // Check if the response is ok before attempting to parse JSON
     if (!response.ok) {
-      // Try to parse error response
       try {
         const errorData = await response.json();
-        // Provide more user-friendly error messages
-        const errorMessage = errorData.error || `Service unavailable (${response.status})`;
-        throw new Error(errorMessage);
-      } catch (parseError) {
-        // If we can't parse the error response, provide a generic message
-        if (response.status === 503) {
-          throw new Error('YouTube audio extraction service is temporarily unavailable. Please try again later.');
-        } else if (response.status === 500) {
-          throw new Error('Server error occurred. Please try again later.');
-        } else {
-          throw new Error(`Service error (${response.status}). Please try again later.`);
-        }
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      } catch {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
     }
 
-    // Get video metadata from headers
+    // For direct audio file response, create a blob and return metadata
+    const audioBlob = await response.blob();
+    const downloadUrl = URL.createObjectURL(audioBlob);
+    
+    // Extract metadata from response headers
     const title = response.headers.get('X-Video-Title') || 'Unknown Title';
     const author = response.headers.get('X-Video-Author') || 'Unknown Author';
     const duration = parseInt(response.headers.get('X-Video-Duration') || '0');
     const thumbnail = response.headers.get('X-Video-Thumbnail') || '';
-
-    // Convert response to blob and create download URL
-    const audioBlob = await response.blob();
-    const downloadUrl = URL.createObjectURL(audioBlob);
 
     return {
       title,
