@@ -4,8 +4,8 @@ export class FileConverterService {
   private static async loadFFmpeg() {
     if (this.ffmpeg) return this.ffmpeg;
     
-    // Dynamically import ffmpeg.js
-    const { createFFmpeg, fetchFile } = await import('ffmpeg.js');
+    // Dynamically import @ffmpeg/ffmpeg
+    const { createFFmpeg, fetchFile } = await import('@ffmpeg/ffmpeg');
     
     this.ffmpeg = createFFmpeg({
       log: false,
