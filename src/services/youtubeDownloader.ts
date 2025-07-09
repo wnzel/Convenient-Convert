@@ -1,7 +1,6 @@
 export class YouTubeDownloaderService {
   private static readonly SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
   private static readonly SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  private static readonly APIFY_TOKEN = 'apify_api_y5ieZgJbNlme3dvg239V7hPdsgqIqb1kK2Ch';
 
   static async getAudioDownloadUrl(url: string, format: string = 'mp3') {
     const apiUrl = `${this.SUPABASE_URL}/functions/v1/youtube-downloader`;
@@ -13,8 +12,7 @@ export class YouTubeDownloaderService {
 
     const body = {
       url,
-      format,
-      apifyToken: this.APIFY_TOKEN
+      format
     };
 
     const response = await fetch(apiUrl, {
@@ -23,44 +21,32 @@ export class YouTubeDownloaderService {
       body: JSON.stringify(body)
     });
 
-    // Check if the response is ok before attempting to parse JSON
     if (!response.ok) {
-      let errorMessage = `HTTP error! status: ${response.status}`;
-      
+      // Try to parse error response
       try {
-        // Try to get the response text first
-        const responseText = await response.text();
-        
-        // Try to parse as JSON if possible
-        try {
-          const errorData = JSON.parse(responseText);
-          errorMessage = errorData.error || errorData.message || errorMessage;
-        } catch {
-          // If not JSON, use the text response (might be HTML error page)
-          errorMessage = responseText.length > 200 
-            ? `Server error: ${responseText.substring(0, 200)}...` 
-            : responseText || errorMessage;
-        }
-      } catch {
-        // If we can't read the response, use the default error message
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      } catch (parseError) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
-      throw new Error(errorMessage);
     }
 
-    let data;
-    try {
-      data = await response.json();
-    } catch (parseError) {
-      // If JSON parsing fails, get the response text for debugging
-      const responseText = await response.text();
-      throw new Error(`Invalid JSON response from server. Response: ${responseText.substring(0, 200)}...`);
-    }
+    // Get video metadata from headers
+    const title = response.headers.get('X-Video-Title') || 'Unknown Title';
+    const author = response.headers.get('X-Video-Author') || 'Unknown Author';
+    const duration = parseInt(response.headers.get('X-Video-Duration') || '0');
+    const thumbnail = response.headers.get('X-Video-Thumbnail') || '';
 
-    if (!data.success) {
-      throw new Error(data.error || 'Failed to get download URL');
-    }
+    // Convert response to blob and create download URL
+    const audioBlob = await response.blob();
+    const downloadUrl = URL.createObjectURL(audioBlob);
 
-    return data.data;
+    return {
+      title,
+      author,
+      duration,
+      thumbnail,
+      downloadUrl
+    };
   }
 }
