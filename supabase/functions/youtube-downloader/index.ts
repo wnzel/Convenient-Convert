@@ -1,77 +1,98 @@
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
+
+interface RequestBody {
+  url: string;
+  format: string;
+}
 
 Deno.serve(async (req: Request) => {
   // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 200,
+      headers: corsHeaders,
+    });
   }
 
   try {
-    const { url, format = 'mp3' } = await req.json();
+    if (req.method !== "POST") {
+      return new Response(
+        JSON.stringify({ success: false, error: "Method not allowed" }),
+        {
+          status: 405,
+          headers: {
+            "Content-Type": "application/json",
+            ...corsHeaders,
+          },
+        }
+      );
+    }
 
-    // --- Input Validation ---
+    const body: RequestBody = await req.json();
+    const { url, format } = body;
+
     if (!url) {
-      return new Response(JSON.stringify({ success: false, error: 'YouTube URL is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+      return new Response(
+        JSON.stringify({ success: false, error: "URL is required" }),
+        {
+          status: 400,
+          headers: {
+            "Content-Type": "application/json",
+            ...corsHeaders,
+          },
+        }
+      );
     }
 
-    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|v\/)|youtu\.be\/)[\w-]+/;
+    // Validate YouTube URL
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|v\/)|youtu\.be\/)[\w-]{11,}/;
     if (!youtubeRegex.test(url)) {
-      return new Response(JSON.stringify({ success: false, error: 'Invalid YouTube URL' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid YouTube URL" }),
+        {
+          status: 400,
+          headers: {
+            "Content-Type": "application/json",
+            ...corsHeaders,
+          },
+        }
+      );
     }
 
-    console.log('Processing YouTube URL:', url);
-
-    // Extract video ID from URL
-    let videoId = '';
-    if (url.includes('youtube.com/watch?v=')) {
-      videoId = url.split('v=')[1]?.split('&')[0] || '';
-    } else if (url.includes('youtu.be/')) {
-      videoId = url.split('youtu.be/')[1]?.split('?')[0] || '';
-    } else if (url.includes('youtube.com/embed/')) {
-      videoId = url.split('embed/')[1]?.split('?')[0] || '';
-    }
-
-    if (!videoId) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Could not extract video ID from URL'
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
-    console.log('Extracted video ID:', videoId);
-
-    return new Response(JSON.stringify({
-      success: false,
-      error: 'YouTube audio extraction feature is currently under development. Please try uploading audio files directly for conversion instead.'
-    }), {
-      status: 503,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    // For now, return a helpful error message explaining the service is not fully implemented
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: "YouTube audio extraction service is currently under development. This feature requires additional setup and external services to function properly." 
+      }),
+      {
+        status: 503,
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
+      }
+    );
 
   } catch (error) {
-    console.error('Unhandled server error:', error);
+    console.error("YouTube downloader error:", error);
     
-    // Handle specific error cases
-    return new Response(JSON.stringify({
-      success: false,
-      error: 'Internal server error. Please try again later.',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: "Internal server error" 
+      }),
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders,
+        },
+      }
+    );
   }
 });
