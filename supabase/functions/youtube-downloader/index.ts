@@ -53,22 +53,6 @@ Deno.serve(async (req: Request) => {
 
     console.log('Extracted video ID:', videoId);
 
-    // Check if APIFY_TOKEN is configured (if using Apify service)
-    const apifyToken = Deno.env.get('APIFY_TOKEN') || Deno.env.get('VITE_APIFY_TOKEN');
-    
-    if (!apifyToken) {
-      // Return a user-friendly error message when token is not configured
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'APIFY_TOKEN not configured'
-      }), {
-        status: 503,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
-    // If we reach here, the token exists but we still need to implement the actual extraction
-    // For now, return a service unavailable message
     return new Response(JSON.stringify({
       success: false,
       error: 'YouTube audio extraction feature is currently under development. Please try uploading audio files directly for conversion instead.'
