@@ -25,9 +25,18 @@ export class YouTubeDownloaderService {
       // Try to parse error response
       try {
         const errorData = await response.json();
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        // Provide more user-friendly error messages
+        const errorMessage = errorData.error || `Service unavailable (${response.status})`;
+        throw new Error(errorMessage);
       } catch (parseError) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        // If we can't parse the error response, provide a generic message
+        if (response.status === 503) {
+          throw new Error('YouTube audio extraction service is temporarily unavailable. Please try again later.');
+        } else if (response.status === 500) {
+          throw new Error('Server error occurred. Please try again later.');
+        } else {
+          throw new Error(`Service error (${response.status}). Please try again later.`);
+        }
       }
     }
 

@@ -53,26 +53,25 @@ Deno.serve(async (req: Request) => {
 
     console.log('Extracted video ID:', videoId);
 
-    // Use a public YouTube API alternative or web scraping approach
-    // For now, we'll return a mock response to demonstrate the structure
-    // In a real implementation, you would need to use a service like:
-    // - YouTube Data API v3 (requires API key)
-    // - A third-party service
-    // - Web scraping (complex and may violate ToS)
+    // Check if APIFY_TOKEN is configured (if using Apify service)
+    const apifyToken = Deno.env.get('APIFY_TOKEN');
     
-    // Mock video information
-    const videoInfo = {
-      title: 'Sample Video Title',
-      uploader: 'Sample Channel',
-      duration: 180, // 3 minutes
-      thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
-    };
+    if (!apifyToken) {
+      // Return a user-friendly error message when token is not configured
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'YouTube audio extraction service is not properly configured. Please contact the administrator to set up the required API credentials.'
+      }), {
+        status: 503,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
 
-    // Since we can't actually extract audio in this environment,
-    // we'll return an error message explaining the limitation
+    // If we reach here, the token exists but we still need to implement the actual extraction
+    // For now, return a service unavailable message
     return new Response(JSON.stringify({
       success: false,
-      error: 'Audio extraction is currently not available. This feature requires additional server-side tools that are not available in the current environment. Please try uploading audio files directly for conversion instead.'
+      error: 'YouTube audio extraction feature is currently under development. Please try uploading audio files directly for conversion instead.'
     }), {
       status: 503,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -80,6 +79,18 @@ Deno.serve(async (req: Request) => {
 
   } catch (error) {
     console.error('Unhandled server error:', error);
+    
+    // Handle specific error cases
+    if (error instanceof Error && error.message.includes('APIFY_TOKEN')) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'YouTube audio extraction service is not properly configured. Please contact the administrator.'
+      }), {
+        status: 503,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+    
     return new Response(JSON.stringify({
       success: false,
       error: 'Internal server error. Please try again later.',
