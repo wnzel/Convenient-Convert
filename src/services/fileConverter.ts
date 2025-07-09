@@ -51,7 +51,7 @@ export class FileConverterService {
     onProgress?.(30);
     
     // Run conversion
-    await ffmpeg.run(...conversionArgs, inputName, outputName);
+    await ffmpeg.run('-i', inputName, ...conversionArgs, outputName);
     onProgress?.(80);
     
     // Read output file
@@ -71,7 +71,6 @@ export class FileConverterService {
 
   private static getConversionArgs(file: File, targetFormat: string, targetSize?: number): string[] {
     const fileType = this.getFileType(file);
-    const args = ['-i'];
     
     if (fileType === 'video') {
       return this.getVideoConversionArgs(file, targetFormat, targetSize);
@@ -81,11 +80,11 @@ export class FileConverterService {
       return this.getImageConversionArgs(file, targetFormat, targetSize);
     }
     
-    return args;
+    return [];
   }
 
   private static getVideoConversionArgs(file: File, targetFormat: string, targetSize?: number): string[] {
-    const args = ['-i'];
+    const args: string[] = [];
     
     if (targetSize) {
       // Calculate target bitrate based on file size
@@ -117,7 +116,7 @@ export class FileConverterService {
   }
 
   private static getAudioConversionArgs(file: File, targetFormat: string, targetSize?: number): string[] {
-    const args = ['-i'];
+    const args: string[] = [];
     
     if (targetSize) {
       // Calculate target bitrate for audio
@@ -144,7 +143,7 @@ export class FileConverterService {
   }
 
   private static getImageConversionArgs(file: File, targetFormat: string, targetSize?: number): string[] {
-    const args = ['-i'];
+    const args: string[] = [];
     
     if (targetSize && (targetFormat === 'jpg' || targetFormat === 'jpeg')) {
       // For JPEG, use quality setting to control file size
