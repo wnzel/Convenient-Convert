@@ -1,5 +1,3 @@
-import { YtDlpWrap } from "npm:yt-dlp-wrap@3.0.2";
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -33,15 +31,45 @@ Deno.serve(async (req: Request) => {
 
     console.log('Processing YouTube URL:', url);
 
-    // Initialize yt-dlp
-    const ytDlp = new YtDlpWrap();
-    
-    // First, get video information
+    // Generate a unique filename for the temporary audio file
+    const tempFileName = `audio_${Date.now()}.${format}`;
+    const tempFilePath = `/tmp/${tempFileName}`;
+    const infoFilePath = `/tmp/info_${Date.now()}.json`;
+
+    console.log('Extracting audio to:', tempFilePath);
+
+    // First, get video information using yt-dlp directly
     console.log('Getting video information...');
     let videoInfo;
     try {
-      const infoResult = await ytDlp.getVideoInfo(url);
-      videoInfo = Array.isArray(infoResult) ? infoResult[0] : infoResult;
+      const infoCommand = new Deno.Command("yt-dlp", {
+        args: [
+          "--dump-json",
+          "--no-warnings",
+          "--no-playlist",
+          url
+        ],
+        stdout: "piped",
+        stderr: "piped"
+      });
+
+      const infoProcess = infoCommand.spawn();
+      const infoOutput = await infoProcess.output();
+
+      if (!infoOutput.success) {
+        const errorText = new TextDecoder().decode(infoOutput.stderr);
+        console.error('Failed to get video info:', errorText);
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Failed to retrieve video information. The video may be private, restricted, or unavailable.'
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      const infoText = new TextDecoder().decode(infoOutput.stdout);
+      videoInfo = JSON.parse(infoText);
       console.log('Video info retrieved:', videoInfo.title);
     } catch (error) {
       console.error('Failed to get video info:', error);
@@ -54,23 +82,36 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Generate a unique filename for the temporary audio file
-    const tempFileName = `audio_${Date.now()}.${format}`;
-    const tempFilePath = `/tmp/${tempFileName}`;
-
-    console.log('Extracting audio to:', tempFilePath);
-
-    // Extract audio using yt-dlp
+    // Extract audio using yt-dlp directly
     try {
-      await ytDlp.exec([
-        url,
-        '--extract-audio',
-        '--audio-format', format,
-        '--audio-quality', '0', // Best quality
-        '--output', tempFilePath,
-        '--no-playlist',
-        '--no-warnings'
-      ]);
+      const command = new Deno.Command("yt-dlp", {
+        args: [
+          url,
+          "--extract-audio",
+          "--audio-format", format,
+          "--audio-quality", "0", // Best quality
+          "--output", tempFilePath,
+          "--no-playlist",
+          "--no-warnings"
+        ],
+        stdout: "piped",
+        stderr: "piped"
+      });
+
+      const process = command.spawn();
+      const output = await process.output();
+
+      if (!output.success) {
+        const errorText = new TextDecoder().decode(output.stderr);
+        console.error('Audio extraction failed:', errorText);
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Failed to extract audio from video. The video may have restrictions or no audio track.'
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
       
       console.log('Audio extraction completed');
     } catch (error) {
@@ -100,7 +141,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Clean up temporary file
+    // Clean up temporary files
     try {
       await Deno.remove(tempFilePath);
     } catch (error) {
