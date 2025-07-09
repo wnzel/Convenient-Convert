@@ -4,6 +4,7 @@ import FileUploadArea from './FileUploadArea';
 import ConversionOptions from './ConversionOptions';
 import ExtractAudioForm from './ExtractAudioForm';
 import { YouTubeDownloaderService } from '../services/youtubeDownloader';
+import { FileConverterService } from '../services/fileConverter';
 
 export type ConversionType = 'audio' | 'image' | 'document' | 'video' | 'extract';
 
@@ -147,49 +148,57 @@ const ConversionTool: React.FC = () => {
     }
   };
 
-  const simulateFileConversion = (fileId: string) => {
-    return new Promise<void>((resolve) => {
-      let progress = 0;
-      conversionTimers.current[fileId] = setInterval(() => {
-        progress += 2;
-        setFiles(prev => prev.map(f =>
-          f.id === fileId ? { ...f, progress } : f
-        ));
-        if (progress >= 100) {
-          clearInterval(conversionTimers.current[fileId]);
-          delete conversionTimers.current[fileId];
-          resolve();
-        }
-      }, 100);
-    });
-  };
-
   const handleConvert = async () => {
     setIsProcessing(true);
     const filesToConvert = files.filter(f => f.status === 'idle');
 
     for (const file of filesToConvert) {
-        setFiles(prev => prev.map(f =>
-            f.id === file.id ? { ...file, status: 'processing', progress: 0 } : f
-        ));
+      setFiles(prev => prev.map(f =>
+        f.id === file.id ? { ...f, status: 'processing', progress: 0 } : f
+      ));
+      
       try {
-        await simulateFileConversion(file.id);
-        const success = Math.random() > 0.1;
+        // Validate that target format is selected
+        if (!file.targetFormat) {
+          throw new Error('Please select a target format');
+        }
+        
+        // Convert the file using FFmpeg
+        const convertedBlob = await FileConverterService.convertFile(
+          file.file,
+          file.targetFormat,
+          file.targetSize,
+          (progress) => {
+            setFiles(prev => prev.map(f =>
+              f.id === file.id ? { ...f, progress } : f
+            ));
+          }
+        );
+        
+        // Create download URL
+        const downloadUrl = URL.createObjectURL(convertedBlob);
+        
+        // Update file with success status
         setFiles(prev => prev.map(f =>
-          f.id === file.id ? {
-            ...f,
-            status: success ? 'completed' : 'error',
-            progress: success ? 100 : f.progress,
-            downloadUrl: success ? URL.createObjectURL(f.file) : undefined,
-            error: !success ? 'Failed to convert file' : undefined
+          f.id === file.id ? { 
+            ...f, 
+            status: 'completed', 
+            progress: 100,
+            downloadUrl,
+            file: new File([convertedBlob], `converted-${f.file.name}.${file.targetFormat}`, {
+              type: convertedBlob.type
+            })
           } : f
         ));
+        
       } catch (error) {
+        console.error('Conversion error:', error);
         setFiles(prev => prev.map(f =>
           f.id === file.id ? {
             ...f,
             status: 'error',
-            error: 'Conversion failed'
+            error: error instanceof Error ? error.message : 'Conversion failed',
+            progress: 0
           } : f
         ));
       }
@@ -408,6 +417,12 @@ const ConversionTool: React.FC = () => {
                                     <span>{formatDuration(file.duration)}</span>
                                   </>
                                 )}
+                                {file.status === 'completed' && file.file.size && (
+                                  <>
+                                    <span>•</span>
+                                    <span>{FileConverterService.formatFileSize(file.file.size)}</span>
+                                  </>
+                                )}
                                 {file.status === 'processing' && (
                                   <>
                                     <span>•</span>
@@ -468,9 +483,9 @@ const ConversionTool: React.FC = () => {
             <div className="mt-6 flex justify-center">
               <button
                 onClick={handleConvert}
-                disabled={isProcessing || files.every(f => f.status !== 'idle')}
+                disabled={isProcessing || files.filter(f => f.type !== 'extract').every(f => f.status !== 'idle' || !f.targetFormat)}
                 className={`px-6 py-3 rounded-lg font-medium transition-colors ${
-                  isProcessing || files.every(f => f.status !== 'idle')
+                  isProcessing || files.filter(f => f.type !== 'extract').every(f => f.status !== 'idle' || !f.targetFormat)
                     ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                     : 'bg-primary-500 hover:bg-primary-600 text-white'
                 }`}
