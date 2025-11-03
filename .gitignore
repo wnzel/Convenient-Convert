@@ -7,6 +7,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Env
+.env
+
+# Dependencies / builds
 node_modules
 dist
 dist-ssr
@@ -22,6 +26,3 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-
-# Bolt development environment
-.bolt/
