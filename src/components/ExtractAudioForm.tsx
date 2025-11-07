@@ -50,47 +50,88 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
 
     try {
       if (urlType === "youtube") {
-        // Use local yt-dlp server endpoint which streams converted audio.
-        // The server will return an audio file stream; we convert it to a blob
-        // and create an object URL which we pass to the parent handler.
-        const body: any = { videoUrl: url, audioFormat: format };
+        const isProd = import.meta.env.PROD;
+        if (isProd) {
+          // Production: use Apify via serverless functions with polling
+          const startResp = await fetch("/api/start-extract", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ videoUrl: url, audioFormat: format }),
+          });
+          if (!startResp.ok) throw new Error(await startResp.text());
+          const { runId } = await startResp.json();
+          if (!runId) throw new Error("No runId returned");
 
-        const resp = await fetch("/api/yt-dlp", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-
-        if (!resp.ok) {
-          const text = await resp.text();
-          throw new Error(`Server error: ${resp.status} ${text}`);
-        }
-
-        // Try to read filename from Content-Disposition header
-        const cd =
-          resp.headers.get("Content-Disposition") ||
-          resp.headers.get("content-disposition");
-        let filename: string | undefined;
-        if (cd) {
-          // Simple parse: filename="..." or filename*=UTF-8''...
-          const m1 = cd.match(/filename\s*=\s*"([^"]+)"/i);
-          if (m1 && m1[1]) {
-            filename = m1[1];
-          } else {
-            const m2 = cd.match(/filename\*\s*=\s*UTF-8''([^;]+)$/i);
-            if (m2 && m2[1]) {
-              try {
-                filename = decodeURIComponent(m2[1]);
-              } catch {
-                filename = m2[1];
+          const pollInterval = 2500;
+          const maxMs = 10 * 60 * 1000; // 10 minutes
+          const start = Date.now();
+          let datasetId: string | undefined;
+          while (Date.now() - start < maxMs) {
+            await new Promise((r) => setTimeout(r, pollInterval));
+            const st = await fetch(
+              `/api/run-status?runId=${encodeURIComponent(runId)}`
+            );
+            if (!st.ok) throw new Error(await st.text());
+            const sdata = await st.json();
+            if (sdata.status === "SUCCEEDED") {
+              datasetId = sdata.datasetId;
+              break;
+            }
+            if (["FAILED", "ABORTED"].includes(sdata.status))
+              throw new Error(`Actor run failed: ${sdata.status}`);
+          }
+          if (!datasetId) throw new Error("Timed out waiting for success");
+          const resultResp = await fetch(
+            `/api/run-result?datasetId=${encodeURIComponent(datasetId)}`
+          );
+          if (!resultResp.ok) throw new Error(await resultResp.text());
+          const { item } = await resultResp.json();
+          const title: string | undefined = item?.title || item?.videoTitle;
+          const candidate =
+            item?.audioUrl || item?.downloadUrl || item?.fileUrl || item?.url;
+          if (!candidate) throw new Error("No audio URL found in result");
+          const dl = await fetch(candidate);
+          if (!dl.ok) throw new Error("Failed to fetch audio file");
+          const blob = await dl.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const filename = title
+            ? `${title.replace(/[\\/:*?"<>|]/g, "_")}.${format}`
+            : undefined;
+          onSubmit(objectUrl, format, filename);
+        } else {
+          // Development: use local yt-dlp streaming endpoint
+          const body: any = { videoUrl: url, audioFormat: format };
+          const resp = await fetch("/api/yt-dlp", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(`Server error: ${resp.status} ${text}`);
+          }
+          const cd =
+            resp.headers.get("Content-Disposition") ||
+            resp.headers.get("content-disposition");
+          let filename: string | undefined;
+          if (cd) {
+            const m1 = cd.match(/filename\s*=\s*"([^"]+)"/i);
+            if (m1 && m1[1]) filename = m1[1];
+            else {
+              const m2 = cd.match(/filename\*\s*=\s*UTF-8''([^;]+)$/i);
+              if (m2 && m2[1]) {
+                try {
+                  filename = decodeURIComponent(m2[1]);
+                } catch {
+                  filename = m2[1];
+                }
               }
             }
           }
+          const blob = await resp.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          onSubmit(objectUrl, format, filename);
         }
-
-        const blob = await resp.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        onSubmit(objectUrl, format, filename);
       } else {
         // TikTok implementation would go here
         setError("TikTok extraction is not yet supported");
