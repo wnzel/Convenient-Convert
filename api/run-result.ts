@@ -31,8 +31,13 @@ export default async function handler(req: any, res: any) {
         .status(502)
         .json({ error: "No items in dataset", details: items });
     }
-    const item = items[0];
-    return res.json({ item });
+    // Try to pick a successful item with an audio/download URL
+    const pick =
+      items.find(
+        (it: any) =>
+          it && (it.audioUrl || it.downloadUrl || it.fileUrl || it.url)
+      ) || items[0];
+    return res.json({ item: pick });
   } catch (e: any) {
     return res
       .status(500)

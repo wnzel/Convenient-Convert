@@ -17,13 +17,19 @@ export default async function handler(req: any, res: any) {
     const actorId = encodeURIComponent(
       "thenetaji~youtube-video-and-music-downloader"
     );
-    const body = {
+    const body: any = {
       urls: [{ url: videoUrl }],
       audioOnly: true,
       audioFormat,
       audioQuality: "320",
-      concurrency: 5,
-      proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
+      concurrency: 1,
+      proxy: {
+        useApifyProxy: true,
+        apifyProxyGroups: ["RESIDENTIAL"],
+        apifyProxyCountry: "US",
+        // Use a sticky proxy session for better reliability on repeat fetches
+        session: `yt-${Date.now()}`,
+      },
     };
 
     const startResp = await fetch(

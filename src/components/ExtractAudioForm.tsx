@@ -90,9 +90,17 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
           const candidate =
             item?.audioUrl || item?.downloadUrl || item?.fileUrl || item?.url;
           if (!candidate) throw new Error("No audio URL found in result");
-          const dl = await fetch(candidate);
-          if (!dl.ok) throw new Error("Failed to fetch audio file");
-          const blob = await dl.blob();
+          // Use serverless fetch-audio to avoid CORS / geo issues
+          const proxyResp = await fetch("/api/fetch-audio", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url: candidate,
+              filename: item?.title ? `${item.title}.${format}` : undefined,
+            }),
+          });
+          if (!proxyResp.ok) throw new Error(await proxyResp.text());
+          const blob = await proxyResp.blob();
           const objectUrl = URL.createObjectURL(blob);
           const filename = title
             ? `${title.replace(/[\\/:*?"<>|]/g, "_")}.${format}`
