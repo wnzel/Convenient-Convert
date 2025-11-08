@@ -6,20 +6,22 @@ import {
   ExternalLink,
   Loader2,
 } from "lucide-react";
-// using server-side /api/yt-dlp endpoint instead of client-side Apify call
+import { extractAudioFromYoutube, type ExtractResult } from "../utils/apifyApi";
 
 interface ExtractAudioFormProps {
-  // Pass back the object URL and optional filename derived from server headers
-  onSubmit: (url: string, format: string, filename?: string) => void;
+  onSubmit: (
+    url: string,
+    format: string,
+    title?: string,
+    actualExtension?: string
+  ) => void;
 }
 
 const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
   const [url, setUrl] = useState("");
-  const [format, setFormat] = useState("mp3");
   const [urlType, setUrlType] = useState<"youtube" | "tiktok">("youtube");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  // Advanced options removed per request; only keep essential fields.
 
   const validateUrl = (url: string, type: "youtube" | "tiktok"): boolean => {
     if (!url) return false;
@@ -50,96 +52,10 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
 
     try {
       if (urlType === "youtube") {
-        const isProd = import.meta.env.PROD;
-        if (isProd) {
-          // Production: use Apify via serverless functions with polling
-          const startResp = await fetch("/api/start-extract", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ videoUrl: url, audioFormat: format }),
-          });
-          if (!startResp.ok) throw new Error(await startResp.text());
-          const { runId } = await startResp.json();
-          if (!runId) throw new Error("No runId returned");
-
-          const pollInterval = 2500;
-          const maxMs = 10 * 60 * 1000; // 10 minutes
-          const start = Date.now();
-          let datasetId: string | undefined;
-          while (Date.now() - start < maxMs) {
-            await new Promise((r) => setTimeout(r, pollInterval));
-            const st = await fetch(
-              `/api/run-status?runId=${encodeURIComponent(runId)}`
-            );
-            if (!st.ok) throw new Error(await st.text());
-            const sdata = await st.json();
-            if (sdata.status === "SUCCEEDED") {
-              datasetId = sdata.datasetId;
-              break;
-            }
-            if (["FAILED", "ABORTED"].includes(sdata.status))
-              throw new Error(`Actor run failed: ${sdata.status}`);
-          }
-          if (!datasetId) throw new Error("Timed out waiting for success");
-          const resultResp = await fetch(
-            `/api/run-result?datasetId=${encodeURIComponent(datasetId)}`
-          );
-          if (!resultResp.ok) throw new Error(await resultResp.text());
-          const { item } = await resultResp.json();
-          const title: string | undefined = item?.title || item?.videoTitle;
-          const candidate =
-            item?.audioUrl || item?.downloadUrl || item?.fileUrl || item?.url;
-          if (!candidate) throw new Error("No audio URL found in result");
-          // Use serverless fetch-audio to avoid CORS / geo issues
-          const proxyResp = await fetch("/api/fetch-audio", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              url: candidate,
-              filename: item?.title ? `${item.title}.${format}` : undefined,
-            }),
-          });
-          if (!proxyResp.ok) throw new Error(await proxyResp.text());
-          const blob = await proxyResp.blob();
-          const objectUrl = URL.createObjectURL(blob);
-          const filename = title
-            ? `${title.replace(/[\\/:*?"<>|]/g, "_")}.${format}`
-            : undefined;
-          onSubmit(objectUrl, format, filename);
-        } else {
-          // Development: use local yt-dlp streaming endpoint
-          const body: any = { videoUrl: url, audioFormat: format };
-          const resp = await fetch("/api/yt-dlp", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          });
-          if (!resp.ok) {
-            const text = await resp.text();
-            throw new Error(`Server error: ${resp.status} ${text}`);
-          }
-          const cd =
-            resp.headers.get("Content-Disposition") ||
-            resp.headers.get("content-disposition");
-          let filename: string | undefined;
-          if (cd) {
-            const m1 = cd.match(/filename\s*=\s*"([^"]+)"/i);
-            if (m1 && m1[1]) filename = m1[1];
-            else {
-              const m2 = cd.match(/filename\*\s*=\s*UTF-8''([^;]+)$/i);
-              if (m2 && m2[1]) {
-                try {
-                  filename = decodeURIComponent(m2[1]);
-                } catch {
-                  filename = m2[1];
-                }
-              }
-            }
-          }
-          const blob = await resp.blob();
-          const objectUrl = URL.createObjectURL(blob);
-          onSubmit(objectUrl, format, filename);
-        }
+        const result: ExtractResult = await extractAudioFromYoutube(url, "mp3");
+        const actualExt = (result.actualExtension || "").toLowerCase();
+        // Always deliver MP3 (transcode if needed downstream)
+        onSubmit(result.audioUrl, "mp3", result.title, actualExt);
       } else {
         // TikTok implementation would go here
         setError("TikTok extraction is not yet supported");
@@ -163,8 +79,7 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
           Extract Audio from Videos
         </h3>
         <p className="text-gray-600 dark:text-gray-400 text-center max-w-md">
-          Extract audio tracks from YouTube or TikTok videos in your preferred
-          format
+          Extract audio tracks from YouTube or TikTok videos as MP3
         </p>
       </div>
 
@@ -248,29 +163,15 @@ const ExtractAudioForm: React.FC<ExtractAudioFormProps> = ({ onSubmit }) => {
           )}
         </div>
 
-        {/* Format selection */}
+        {/* Fixed output format display */}
         <div className="mb-6">
-          <label
-            htmlFor="audio-format"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-          >
+          <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Audio Format
-          </label>
-          <select
-            id="audio-format"
-            value={format}
-            onChange={(e) => setFormat(e.target.value)}
-            className="block w-full py-3 px-4 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-colors"
-          >
-            <option value="mp3">MP3</option>
-            <option value="m4a">M4A</option>
-            <option value="wav">WAV</option>
-            <option value="flac">FLAC</option>
-            <option value="ogg">OGG</option>
-          </select>
+          </span>
+          <div className="inline-flex items-center px-3 py-1 rounded-full bg-teal-50 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300 border border-teal-200 dark:border-teal-800 w-fit">
+            MP3
+          </div>
         </div>
-
-        {/* Advanced options removed */}
 
         {/* Submit button */}
         <div className="flex justify-center">

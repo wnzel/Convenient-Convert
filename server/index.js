@@ -88,12 +88,10 @@ app.post("/api/extract", async (req, res) => {
     }
 
     if (!runResult || status !== "SUCCEEDED") {
-      return res
-        .status(502)
-        .json({
-          error: `Actor run did not succeed: ${status}`,
-          details: runResult,
-        });
+      return res.status(502).json({
+        error: `Actor run did not succeed: ${status}`,
+        details: runResult,
+      });
     }
 
     const datasetId = runResult.defaultDatasetId;

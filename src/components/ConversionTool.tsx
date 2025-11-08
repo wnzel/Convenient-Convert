@@ -40,7 +40,9 @@ const ConversionTool: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ConversionType>("audio");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const conversionTimers = useRef<{ [key: string]: number }>({});
+  const conversionTimers = useRef<{
+    [key: string]: ReturnType<typeof setInterval>;
+  }>({});
 
   const handleAddFiles = (newFiles: FileList | null, type: ConversionType) => {
     if (!newFiles || newFiles.length === 0) return;
@@ -91,8 +93,8 @@ const ConversionTool: React.FC = () => {
   const handleDownload = (fileItem: FileItem) => {
     const link = document.createElement("a");
     link.href = fileItem.downloadUrl!;
-    // For extracted audio, use the provided filename directly.
     if (fileItem.type === "extract") {
+      // Use the provided title-based filename directly for extracted audio
       link.download = fileItem.file.name;
     } else {
       link.download = `converted-${fileItem.file.name}${
@@ -176,23 +178,32 @@ const ConversionTool: React.FC = () => {
   const handleExtractAudio = async (
     audioUrl: string,
     format: string,
-    filenameFromServer?: string
+    title?: string,
+    sourceExt?: string
   ) => {
-    const fileName =
-      filenameFromServer || `extracted-audio-${Date.now()}.${format}`;
-    // Map common audio MIME types
-    const mimeMap: Record<string, string> = {
+    const safeTitle = title
+      ? title
+          .replace(/[\\/:*?"<>|]/g, "-")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 80)
+      : `extracted-audio-${Date.now()}`;
+    const fileName = `${safeTitle}.${format}`;
+    const mimeByExt: Record<string, string> = {
       mp3: "audio/mpeg",
       m4a: "audio/mp4",
       wav: "audio/wav",
       flac: "audio/flac",
       ogg: "audio/ogg",
+      webm: "audio/webm",
+      aac: "audio/aac",
+      opus: "audio/ogg", // common container reported for opus
     };
-    const mimeType = mimeMap[format] || "audio/mpeg";
+    const mime = mimeByExt[format.toLowerCase()] || "audio/mpeg";
 
     const newFile: FileItem = {
       id: `extract-${Date.now()}`,
-      file: new File([], fileName, { type: mimeType }),
+      file: new File([], fileName, { type: mime }),
       status: "processing",
       type: "extract",
       targetFormat: format,
@@ -202,53 +213,35 @@ const ConversionTool: React.FC = () => {
     setFiles((prev) => [...prev, newFile]);
 
     try {
-      // If the server returned an object URL (blob:), we can use it directly
-      if (audioUrl.startsWith("blob:")) {
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === newFile.id
-              ? {
-                  ...f,
-                  status: "completed",
-                  progress: 100,
-                  downloadUrl: audioUrl,
-                }
-              : f
-          )
-        );
+      let response: Response;
+      if (format.toLowerCase() === "mp3" && sourceExt && sourceExt !== "mp3") {
+        const transcodeUrl = `/api/transcode?url=${encodeURIComponent(
+          audioUrl
+        )}&format=mp3&filename=${encodeURIComponent(fileName)}`;
+        response = await fetch(transcodeUrl);
       } else {
-        // Download the audio file
-        const response = await fetch(audioUrl);
-        if (!response.ok) throw new Error("Failed to download audio");
-
-        // Try to capture server-provided filename as a fallback (if direct URL path is used)
-        let suggestedName = filenameFromServer;
-        const cd =
-          response.headers.get("Content-Disposition") ||
-          response.headers.get("content-disposition");
-        if (!suggestedName && cd) {
-          const m1 = cd.match(/filename\s*=\s*"([^"]+)"/i);
-          if (m1 && m1[1]) suggestedName = m1[1];
-        }
-
-        const blob = await response.blob();
-
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === newFile.id
-              ? {
-                  ...f,
-                  status: "completed",
-                  progress: 100,
-                  downloadUrl: URL.createObjectURL(blob),
-                  file: new File([], suggestedName || fileName, {
-                    type: mimeType,
-                  }),
-                }
-              : f
-          )
-        );
+        // Route through server download proxy to bypass CORS and set filename
+        const proxyUrl = `/api/download?url=${encodeURIComponent(
+          audioUrl
+        )}&filename=${encodeURIComponent(fileName)}`;
+        response = await fetch(proxyUrl);
       }
+      if (!response.ok) throw new Error("Failed to download audio");
+
+      const blob = await response.blob();
+
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === newFile.id
+            ? {
+                ...f,
+                status: "completed",
+                progress: 100,
+                downloadUrl: URL.createObjectURL(blob),
+              }
+            : f
+        )
+      );
     } catch (error) {
       setFiles((prev) =>
         prev.map((f) =>
@@ -393,7 +386,7 @@ const ConversionTool: React.FC = () => {
                             ? "Audio Extraction"
                             : file.type}
                           {file.targetFormat &&
-                            ` • Convert to ${file.targetFormat}`}
+                            ` • ${file.targetFormat.toUpperCase()}`}
                           {file.targetSize &&
                             ` • Resize to ${file.targetSize}MB`}
                           {file.status === "processing" &&
