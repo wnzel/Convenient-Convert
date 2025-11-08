@@ -10,49 +10,80 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: "APIFY_TOKEN not set on server" });
 
   try {
-    const { videoUrl, audioFormat = "mp3" } = req.body || {};
+    const {
+      videoUrl,
+      audioFormat = "mp3",
+      quality,
+      attempts = 3,
+    } = req.body || {};
     if (!videoUrl)
       return res.status(400).json({ error: "videoUrl is required" });
 
-    const actorId = encodeURIComponent(
-      "thenetaji~youtube-video-and-music-downloader"
-    );
-    const body: any = {
-      urls: [{ url: videoUrl }],
-      audioOnly: true,
-      audioFormat,
-      audioQuality: "320",
-      concurrency: 1,
-      proxy: {
-        useApifyProxy: true,
-        apifyProxyGroups: ["RESIDENTIAL"],
-        apifyProxyCountry: "US",
-        // Use a sticky proxy session for better reliability on repeat fetches
-        session: `yt-${Date.now()}`,
-      },
-    };
+    // Candidate actors (try primary, then fallback). You can extend this list.
+    const actorCandidates = [
+      "thenetaji~youtube-video-and-music-downloader",
+      "web.harvester~youtube-downloader",
+    ];
 
-    const startResp = await fetch(
-      `https://api.apify.com/v2/acts/${actorId}/runs?token=${token}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+    const chosenQuality = quality || "192"; // lower quality to reduce 403 likelihood
+    let lastError: any = null;
+    for (let attemptIdx = 0; attemptIdx < attempts; attemptIdx++) {
+      const actorName = actorCandidates[attemptIdx % actorCandidates.length];
+      const actorId = encodeURIComponent(actorName);
+      const session = `yt-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      const body: any = {
+        urls: [{ url: videoUrl }],
+        audioOnly: true,
+        audioFormat,
+        audioQuality: chosenQuality,
+        concurrency: 1,
+        // Simpler proxy config (no residential group) for broader pool
+        proxy: {
+          useApifyProxy: true,
+          // country omitted to allow geo diversity; set apifyProxyCountry if you need consistency
+          session,
+        },
+      };
+      try {
+        const startResp = await fetch(
+          `https://api.apify.com/v2/acts/${actorId}/runs?token=${token}`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }
+        );
+        if (!startResp.ok) {
+          const text = await startResp.text();
+          lastError = {
+            actor: actorName,
+            status: startResp.status,
+            details: text,
+          };
+          continue; // try next actor/attempt
+        }
+        const startData = await startResp.json();
+        const runId = startData?.data?.id || startData?.id;
+        if (!runId) {
+          lastError = { actor: actorName, details: startData };
+          continue;
+        }
+        return res.json({
+          runId,
+          actor: actorName,
+          quality: chosenQuality,
+          attempt: attemptIdx + 1,
+        });
+      } catch (err: any) {
+        lastError = { actor: actorName, error: String(err) };
+        continue;
       }
-    );
-    if (!startResp.ok) {
-      const text = await startResp.text();
-      return res
-        .status(502)
-        .json({ error: "Failed to start Apify actor", details: text });
     }
-    const startData = await startResp.json();
-    const runId = startData?.data?.id || startData?.id;
-    if (!runId)
-      return res
-        .status(502)
-        .json({ error: "No run id from Apify", details: startData });
-    return res.json({ runId });
+    return res
+      .status(502)
+      .json({ error: "Failed to start any actor run", lastError });
   } catch (e: any) {
     return res
       .status(500)
