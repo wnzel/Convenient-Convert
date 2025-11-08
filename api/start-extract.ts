@@ -19,8 +19,33 @@ export default async function handler(req: any, res: any) {
     if (!videoUrl)
       return res.status(400).json({ error: "videoUrl is required" });
 
+    // Extract YouTube video ID if a URL was provided
+    const extractYouTubeId = (input: string): string | null => {
+      try {
+        if (/^[A-Za-z0-9_-]{10,}$/.test(input) && !input.includes("/"))
+          return input;
+        const u = new URL(input);
+        if (u.hostname.includes("youtu.be")) {
+          const id = u.pathname.replace(/^\//, "").split("/")[0];
+          return id || null;
+        }
+        if (u.hostname.includes("youtube.com")) {
+          const v = u.searchParams.get("v");
+          if (v) return v;
+          const parts = u.pathname.split("/").filter(Boolean);
+          const maybeId = parts[parts.length - 1];
+          if (maybeId && /^[A-Za-z0-9_-]{6,}$/.test(maybeId)) return maybeId;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    };
+    const videoId = extractYouTubeId(videoUrl) || videoUrl;
+
     // Candidate actors (try primary, then fallback). You can extend this list.
     const actorCandidates = [
+      "transcriptdl~transcript-downloader-youtube-audio-scraper",
       "thenetaji~youtube-video-and-music-downloader",
       "web.harvester~youtube-downloader",
     ];
@@ -33,19 +58,36 @@ export default async function handler(req: any, res: any) {
       const session = `yt-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 8)}`;
-      const body: any = {
-        urls: [{ url: videoUrl }],
-        audioOnly: true,
-        audioFormat,
-        audioQuality: chosenQuality,
-        concurrency: 1,
-        // Simpler proxy config (no residential group) for broader pool
-        proxy: {
-          useApifyProxy: true,
-          // country omitted to allow geo diversity; set apifyProxyCountry if you need consistency
-          session,
-        },
-      };
+      let body: any;
+      if (actorName.startsWith("transcriptdl~")) {
+        const tdToken = process.env.TRANSCRIPT_API_TOKEN;
+        if (!tdToken) {
+          lastError = {
+            actor: actorName,
+            error: "TRANSCRIPT_API_TOKEN not set",
+          };
+          continue;
+        }
+        body = {
+          videoIds: [videoId],
+          apiToken: tdToken,
+          downloadToApify: true,
+          maxWaitTime: 10,
+          pollingInterval: 60,
+        };
+      } else {
+        body = {
+          urls: [{ url: videoUrl }],
+          audioOnly: true,
+          audioFormat,
+          audioQuality: chosenQuality,
+          concurrency: 1,
+          proxy: {
+            useApifyProxy: true,
+            session,
+          },
+        };
+      }
       try {
         const startResp = await fetch(
           `https://api.apify.com/v2/acts/${actorId}/runs?token=${token}`,
