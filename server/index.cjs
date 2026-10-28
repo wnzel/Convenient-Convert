@@ -61,10 +61,13 @@ app.post("/api/extract", async (req, res) => {
     const fmt = (desiredFormat || "").toString().toLowerCase().trim();
 
     const envActor = process.env.APIFY_ACTOR && process.env.APIFY_ACTOR.trim();
-    const actorId = envActor || "scrapearchitect~youtube-audio-mp3-downloader";
+    const actorId = envActor || "johnvc~youtube-download-api";
     const encodedActorId = encodeURIComponent(actorId);
 
     const buildBodyForActor = (actor) => {
+      if (actor.includes("johnvc~youtube-download-api")) {
+        return { videoUrls: [videoUrl], format: "audio", audioFormat: "mp3" };
+      }
       if (actor.includes("scrapearchitect~youtube-audio-mp3-downloader")) {
         const body = {
           video_urls: [{ url: videoUrl, method: "GET" }],
@@ -196,6 +199,18 @@ app.post("/api/extract", async (req, res) => {
         bitrateKbps: parseBitrate(a.bitrate),
         mimeType: mapMime(a.ext || a.extension),
       }));
+    } else if (typeof first.fileUrl === "string" && first.fileUrl) {
+      const ext = String(first.container || "mp3").toLowerCase();
+      medias = [
+        {
+          url: first.fileUrl,
+          extension: ext,
+          type: "audio",
+          label: ext,
+          bitrateKbps: first.audioBitrateKbps,
+          mimeType: ext === "mp3" ? "audio/mpeg" : "audio/*",
+        },
+      ];
     }
 
     if (!Array.isArray(medias) || medias.length === 0) {
